@@ -1,0 +1,15 @@
+# Secrets — never commit. Rotate anything that ever landed here or in a doc.
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Dependencies / build output
+node_modules/
+dist/
+vendor/
+
+# Logs / OS cruft
+*.log
+.DS_Store
