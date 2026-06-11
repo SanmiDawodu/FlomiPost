@@ -17,8 +17,13 @@
  *
  * INTEGRATION (do this, then test on a tiny segment before any real blast)
  * ------------------------------------------------------------------------
- * In each publisher (WhatsAppPublisher.php, SMSPublisher.php, and any other
- * fan-out publisher in core/Publishers/), BEFORE building the recipient list:
+ * In each fan-out publisher (WhatsAppPublisher.php and any other publisher in
+ * core/Publishers/ that messages a list of contacts), BEFORE building the
+ * recipient list:
+ *
+ * (SMS/Twilio has been scrapped — there is no SMSPublisher to wire in. The
+ * `sms_contacts` table is kept because it is the shared site-level contacts
+ * table that WhatsApp targeting also reads from; do not drop it.)
  *
  *     require_once __DIR__ . '/../Safety/RecipientGuard.php';
  *     $guard = new RecipientGuard($pdo);                  // $pdo = your PDO handle

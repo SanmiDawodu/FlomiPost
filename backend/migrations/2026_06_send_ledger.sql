@@ -13,7 +13,7 @@ CREATE TABLE IF NOT EXISTS send_ledger (
     id            BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     post_id       BIGINT UNSIGNED NOT NULL,
     connection_id BIGINT UNSIGNED NOT NULL,
-    channel       VARCHAR(32)     NOT NULL,         -- whatsapp | sms | telegram | ...
+    channel       VARCHAR(32)     NOT NULL,         -- whatsapp | telegram | ... (SMS scrapped)
     recipient     VARCHAR(255)    NOT NULL,         -- phone / chat id / handle
     site_id       BIGINT UNSIGNED NULL,
     segment_id    BIGINT UNSIGNED NULL,

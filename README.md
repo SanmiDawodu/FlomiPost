@@ -2,8 +2,8 @@
 
 Multi-channel social/messaging scheduler — **scheduler.flomicso.dev**. Schedules
 and publishes posts across Facebook, Instagram, WhatsApp, Telegram, LinkedIn,
-YouTube, TikTok, X/Twitter, and SMS, with contact segmentation, analytics, and
-link tracking.
+YouTube, TikTok, and X/Twitter, with contact segmentation, analytics, and
+link tracking. (SMS/Twilio has been scrapped — see `docs/CREDENTIAL-ROTATION.md`.)
 
 > The application source currently lives on the VPS at `/var/www/flowpost/` and
 > is **not yet in this repo** — getting it here is a tracked improvement (see

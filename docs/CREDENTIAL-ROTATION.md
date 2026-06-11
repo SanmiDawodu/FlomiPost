@@ -21,9 +21,18 @@ Work top-to-bottom; the first three are the highest impact.
 - **Problem:** the read-write key grants full write access — including the ability to message every contact — and was shared in docs.
 - **Do:** revoke the existing `fp_rw_…` and `fp_ro_…` keys in the FlomiPost API/Integrations page and generate new ones. Update any caller (n8n workflows, scripts, Zapier/Make scenarios) with the new key. Confirm old keys return 401 afterward.
 
-## 3. Twilio (SMS + Voice)
+## 3. Twilio (SMS + Voice) — ACCOUNT WAS COMPROMISED; SMS IS BEING SCRAPPED
+- **What happened:** the `TWILIO_AUTH_TOKEN` leaked (in `.env` and Drive docs)
+  and was used for SMS-pumping fraud (~$255.79 unauthorized usage). Twilio
+  suspended the account ~June 10, 2026, which already killed the leaked token
+  and API key (both return 401). See the Drive "Twilio Fraud Incident" doc.
 - **Keys in `.env`:** `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_API_KEY`, `TWILIO_API_SECRET`, `TWILIO_TWIML_APP_SID`, `TWILIO_FROM_NUMBER`.
-- **Do:** in the Twilio Console, **rotate the Auth Token** (Account > API keys & tokens — promote a secondary then revoke the primary) and **delete the leaked Standard API Key** and create a fresh one. Update `.env`. The Account SID, TwiML App SID, and From Number are identifiers, not secrets, but the Auth Token and API Key Secret must change.
+- **Decision:** SMS is being scrapped. So the goal is **remove and revoke**, not rotate-and-keep:
+  1. Remove every Twilio line from the server env: `sed -i '/TWILIO_/d' /var/www/flowpost/.env` then reload PHP-FPM.
+  2. Delete the plaintext Twilio values from the Drive docs (June 7 "Build Session" and "Session Final"); the secret values are not reproduced here.
+  3. In the Twilio Console, once the suspension is resolved, **close the account** (or at minimum rotate the Auth Token and delete the old API key so the leaked values are permanently dead) and pursue the fraud billing credit.
+- **Note:** the leaked values are almost certainly already dead from the
+  suspension — but treat them as compromised and revoke at the source anyway.
 
 ## 4. Twitter / X
 - **Keys in `.env`:** `TWITTER_CLIENT_ID`, `TWITTER_CLIENT_SECRET`.
@@ -43,6 +52,18 @@ Rotate each in its provider dashboard, then update `.env` / settings:
 - **Google Places** — API key (flomicso.info directory); also add HTTP-referrer / API restrictions in Google Cloud so a leaked key can't be abused from elsewhere
 - **JSearch (RapidAPI)** — regenerate the RapidAPI key
 - **Google AdSense** — publisher ID is not secret, no action
+
+## 8. Other secrets found exposed in Drive docs (rotate these too)
+The May 31 hand-off and related docs leaked more than the items above. Treat
+all as compromised:
+- **ElevenLabs** — `ELEVENLABS_API_KEY` (`sk_…`); revoke + reissue.
+- **FlomiPost production API token** — the long `be6dc4a2…` token; revoke + reissue.
+- **SSH access** — an SSH key for `claude@…` was recorded; remove it from the
+  VPS `~/.ssh/authorized_keys` if it should no longer have access.
+- **VPS root password** — flagged as exposed in the fraud-incident doc; change it.
+- **Meta / LinkedIn / Canva / Reddit / TikTok / YouTube / Gemini / Runway** —
+  OAuth client secrets and API keys listed in the hand-off; rotate any that are
+  still in use.
 
 ---
 
