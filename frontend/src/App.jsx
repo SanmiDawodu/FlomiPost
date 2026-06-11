@@ -45,6 +45,7 @@ const BlogToSocialPage = lazy(() => import('./pages/BlogToSocialPage'))
 const CarouselPage = lazy(() => import('./pages/CarouselPage'))
 const LeadMagnetOptinPage = lazy(() => import('./pages/LeadMagnetOptinPage'))
 const TodoPage = lazy(() => import('./pages/TodoPage'))
+const ChannelHealthPage = lazy(() => import('./pages/ChannelHealthPage'))
 
 const qc = new QueryClient({defaultOptions:queries:{retry:1,staleTime:30000}}})
 
@@ -108,6 +109,7 @@ export default function App() {
               <Route path="labels" element={<LabelsPage/>}/>
               <Route path="approvals" element={<ApprovalsPage/>}/>
               <Route path="ai-schedule" element={<AISchedulePage/>}/>
+              <Route path="channel-health" element={<ChannelHealthPage/>}/>
             </Route>
           </Routes>
         </Suspense>

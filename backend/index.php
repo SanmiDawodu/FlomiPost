@@ -41,6 +41,13 @@ require_once __DIR__.'/core/NotificationService.php';
 require_once __DIR__.'/core/EmailService.php';
 require_once __DIR__.'/core/InboxFetcher.php';
 require_once __DIR__.'/core/InsightsFetcher.php';
+require_once __DIR__.'/core/AI/CaptionGenerator.php';
+require_once __DIR__.'/core/Publishing/ApprovalGate.php';
+require_once __DIR__.'/core/Webhooks/WebhookDispatcher.php';
+require_once __DIR__.'/core/Auth/TOTPAuthenticator.php';
+require_once __DIR__.'/core/Health/ChannelHealthTracker.php';
+require_once __DIR__.'/core/Scheduling/BulkImporter.php';
+require_once __DIR__.'/core/Contacts/SegmentBuilder.php';
 
 $origin=$_SERVER['HTTP_ORIGIN']??'';
 $allowed=[APP_URL,'http://localhost:5173','http://localhost:3000'];
@@ -3600,6 +3607,289 @@ $router->get('/carousels', function() {
 $router->get('/carousels/{id}', function(array $p) {
     Auth::require();
     Response::ok(DB::one('SELECT * FROM carousel_posts WHERE id=?',[(int)$p['id']]));
+});
+
+
+// ═══════════════════════════════════════════════════════════════
+// POST APPROVAL WORKFLOW
+// ═══════════════════════════════════════════════════════════════
+$router->get('/approvals', function() {
+    $u = Auth::require();
+    $siteId = (int)(param('site_id', 0));
+    $status = param('status', 'pending');
+    $where = $siteId ? 'WHERE p.site_id=? AND p.approval_status=?' : 'WHERE p.approval_status=?';
+    $params = $siteId ? [$siteId, $status] : [$status];
+    $posts = DB::all("SELECT p.id,p.caption,p.approval_status,p.approval_note,p.scheduled_at,p.created_at,u.name as author_name FROM posts p LEFT JOIN users u ON u.id=p.user_id $where ORDER BY p.id DESC LIMIT 100", $params);
+    Response::ok($posts);
+});
+
+$router->post('/approvals/{id}/request', function(array $p) {
+    $u = Auth::require();
+    ApprovalGate::requestApproval((int)$p['id'], $u['id']);
+    Response::ok(null, 'Approval requested');
+});
+
+$router->post('/approvals/{id}/approve', function(array $p) {
+    $u = Auth::require();
+    $b = body();
+    ApprovalGate::approve((int)$p['id'], $u['id'], $b['note'] ?? '');
+    (new WebhookDispatcher(DB::all("SELECT * FROM outbound_webhooks WHERE active=1 AND JSON_CONTAINS(events,'\"post.approved\"')")))->dispatch('post.approved', ['post_id' => (int)$p['id'], 'approved_by' => $u['id']]);
+    Response::ok(null, 'Post approved');
+});
+
+$router->post('/approvals/{id}/reject', function(array $p) {
+    $u = Auth::require();
+    $b = body();
+    required($b, ['note']);
+    ApprovalGate::reject((int)$p['id'], $u['id'], $b['note']);
+    Response::ok(null, 'Post rejected');
+});
+
+// ═══════════════════════════════════════════════════════════════
+// POST TEMPLATES
+// ═══════════════════════════════════════════════════════════════
+$router->get('/templates', function() {
+    $u = Auth::require();
+    $siteId = (int)(param('site_id', 0));
+    $where = $siteId ? 'WHERE site_id=? ORDER BY id DESC' : 'ORDER BY id DESC';
+    $params = $siteId ? [$siteId] : [];
+    Response::ok(DB::all("SELECT * FROM post_templates $where LIMIT 200", $params));
+});
+
+$router->post('/templates', function() {
+    $u = Auth::require();
+    $b = body();
+    required($b, ['site_id', 'name', 'channel', 'content']);
+    $id = DB::insert('post_templates', [
+        'site_id'    => (int)$b['site_id'],
+        'name'       => $b['name'],
+        'channel'    => $b['channel'],
+        'content'    => $b['content'],
+        'media_urls' => isset($b['media_urls']) ? json_encode($b['media_urls']) : null,
+        'created_by' => $u['id'],
+    ]);
+    Response::ok(['id' => $id], 'Template created');
+});
+
+$router->put('/templates/{id}', function(array $p) {
+    Auth::require();
+    $b = body();
+    DB::update('post_templates', array_filter([
+        'name'       => $b['name'] ?? null,
+        'content'    => $b['content'] ?? null,
+        'media_urls' => isset($b['media_urls']) ? json_encode($b['media_urls']) : null,
+    ], fn($v) => $v !== null), 'id=?', [(int)$p['id']]);
+    Response::ok(null, 'Template updated');
+});
+
+$router->delete('/templates/{id}', function(array $p) {
+    Auth::require();
+    DB::run('DELETE FROM post_templates WHERE id=?', [(int)$p['id']]);
+    Response::ok(null, 'Template deleted');
+});
+
+$router->post('/templates/{id}/use', function(array $p) {
+    $u = Auth::require();
+    $tpl = DB::one('SELECT * FROM post_templates WHERE id=?', [(int)$p['id']]);
+    if (!$tpl) Response::json(['error' => 'Template not found'], 404);
+    $b = body();
+    $postId = DB::insert('posts', [
+        'site_id'          => (int)($b['site_id'] ?? $tpl['site_id']),
+        'user_id'          => $u['id'],
+        'caption'          => $tpl['content'],
+        'status'           => 'draft',
+        'approval_status'  => 'draft',
+        'scheduled_at'     => $b['scheduled_at'] ?? null,
+    ]);
+    Response::ok(['post_id' => $postId], 'Post created from template');
+});
+
+// ═══════════════════════════════════════════════════════════════
+// OUTBOUND WEBHOOKS
+// ═══════════════════════════════════════════════════════════════
+$router->get('/webhooks', function() {
+    Auth::require();
+    Response::ok(DB::all('SELECT id,url,events,active,created_at FROM outbound_webhooks ORDER BY id DESC'));
+});
+
+$router->post('/webhooks', function() {
+    Auth::require();
+    $b = body();
+    required($b, ['url', 'events']);
+    if (!filter_var($b['url'], FILTER_VALIDATE_URL)) Response::json(['error' => 'Invalid URL'], 400);
+    $secret = bin2hex(random_bytes(20));
+    $id = DB::insert('outbound_webhooks', [
+        'url'    => $b['url'],
+        'secret' => $secret,
+        'events' => json_encode(array_values((array)$b['events'])),
+        'active' => 1,
+    ]);
+    Response::ok(['id' => $id, 'secret' => $secret], 'Webhook created');
+});
+
+$router->put('/webhooks/{id}', function(array $p) {
+    Auth::require();
+    $b = body();
+    DB::update('outbound_webhooks', array_filter([
+        'url'    => $b['url'] ?? null,
+        'events' => isset($b['events']) ? json_encode(array_values((array)$b['events'])) : null,
+        'active' => isset($b['active']) ? (int)$b['active'] : null,
+    ], fn($v) => $v !== null), 'id=?', [(int)$p['id']]);
+    Response::ok(null, 'Webhook updated');
+});
+
+$router->delete('/webhooks/{id}', function(array $p) {
+    Auth::require();
+    DB::run('DELETE FROM outbound_webhooks WHERE id=?', [(int)$p['id']]);
+    Response::ok(null, 'Webhook deleted');
+});
+
+$router->get('/webhooks/{id}/deliveries', function(array $p) {
+    Auth::require();
+    $rows = DB::all('SELECT event,response_code,delivered_at FROM webhook_deliveries WHERE webhook_id=? ORDER BY id DESC LIMIT 50', [(int)$p['id']]);
+    Response::ok($rows);
+});
+
+$router->post('/webhooks/{id}/test', function(array $p) {
+    Auth::require();
+    $wh = DB::one('SELECT * FROM outbound_webhooks WHERE id=?', [(int)$p['id']]);
+    if (!$wh) Response::json(['error' => 'Not found'], 404);
+    $d = new WebhookDispatcher([$wh]);
+    $d->dispatch('webhook.test', ['timestamp' => time()]);
+    Response::ok(null, 'Test event sent');
+});
+
+// ═══════════════════════════════════════════════════════════════
+// TOTP / 2FA
+// ═══════════════════════════════════════════════════════════════
+$router->get('/auth/totp/status', function() {
+    $u = Auth::require();
+    $row = DB::one('SELECT totp_enabled FROM users WHERE id=?', [$u['id']]);
+    Response::ok(['enabled' => (bool)($row['totp_enabled'] ?? false)]);
+});
+
+$router->post('/auth/totp/setup', function() {
+    $u = Auth::require();
+    $totp = new TOTPAuthenticator();
+    $secret = $totp->generateSecret();
+    DB::update('users', ['totp_secret' => $secret, 'totp_enabled' => 0], 'id=?', [$u['id']]);
+    $uri = $totp->getProvisioningUri($secret, $u['email'] ?? $u['name'], 'FlomiPost');
+    Response::ok(['secret' => $secret, 'uri' => $uri]);
+});
+
+$router->post('/auth/totp/verify', function() {
+    $u = Auth::require();
+    $b = body();
+    required($b, ['code']);
+    $row = DB::one('SELECT totp_secret FROM users WHERE id=?', [$u['id']]);
+    if (!$row || !$row['totp_secret']) Response::json(['error' => 'Run setup first'], 400);
+    $totp = new TOTPAuthenticator();
+    if (!$totp->verify($row['totp_secret'], $b['code'])) Response::json(['error' => 'Invalid code'], 400);
+    $backupCodes = $totp->generateBackupCodes();
+    DB::update('users', ['totp_enabled' => 1, 'totp_backup_codes' => json_encode($backupCodes)], 'id=?', [$u['id']]);
+    Response::ok(['backup_codes' => $backupCodes], '2FA enabled');
+});
+
+$router->post('/auth/totp/disable', function() {
+    $u = Auth::require();
+    $b = body();
+    required($b, ['code']);
+    $row = DB::one('SELECT totp_secret FROM users WHERE id=?', [$u['id']]);
+    $totp = new TOTPAuthenticator();
+    if (!$totp->verify($row['totp_secret'] ?? '', $b['code'])) Response::json(['error' => 'Invalid code'], 400);
+    DB::update('users', ['totp_enabled' => 0, 'totp_secret' => null, 'totp_backup_codes' => null], 'id=?', [$u['id']]);
+    Response::ok(null, '2FA disabled');
+});
+
+// ═══════════════════════════════════════════════════════════════
+// CHANNEL HEALTH
+// ═══════════════════════════════════════════════════════════════
+$router->get('/health/channels', function() {
+    $u = Auth::require();
+    $siteId = (int)(param('site_id', 0));
+    $tracker = new ChannelHealthTracker();
+    Response::ok($tracker->getDashboard($siteId ?: null));
+});
+
+// ═══════════════════════════════════════════════════════════════
+// BULK CSV IMPORT
+// ═══════════════════════════════════════════════════════════════
+$router->post('/posts/bulk-import', function() {
+    $u = Auth::require();
+    $b = body();
+    required($b, ['site_id', 'rows']);
+    $siteId = (int)$b['site_id'];
+    // Write rows to temp CSV
+    $tmp = tempnam(sys_get_temp_dir(), 'fp_import_') . '.csv';
+    $rows = (array)$b['rows'];
+    $fh = fopen($tmp, 'w');
+    // Write header if not present
+    if ($rows && !isset($rows[0]['caption']) && is_array($rows[0])) {
+        // rows already associative — write header from keys
+        fputcsv($fh, array_keys($rows[0]));
+        foreach ($rows as $row) fputcsv($fh, array_values($row));
+    } else {
+        // rows is array of arrays; first row is header
+        foreach ($rows as $row) fputcsv($fh, (array)$row);
+    }
+    fclose($fh);
+    $importer = new BulkImporter();
+    $result = $importer->importCsv($tmp, $siteId, $u['id']);
+    unlink($tmp);
+    Response::ok($result);
+});
+
+// ═══════════════════════════════════════════════════════════════
+// CONTACT SEGMENTS
+// ═══════════════════════════════════════════════════════════════
+$router->get('/segments', function() {
+    $u = Auth::require();
+    $siteId = (int)(param('site_id', 0));
+    $where = $siteId ? 'WHERE site_id=?' : '';
+    $params = $siteId ? [$siteId] : [];
+    Response::ok(DB::all("SELECT id,name,filters,created_at FROM contact_segments $where ORDER BY id DESC", $params));
+});
+
+$router->post('/segments', function() {
+    $u = Auth::require();
+    $b = body();
+    required($b, ['site_id', 'name', 'filters']);
+    $sb = new SegmentBuilder();
+    $id = $sb->create((int)$b['site_id'], $b['name'], (array)$b['filters']);
+    Response::ok(['id' => $id], 'Segment created');
+});
+
+$router->get('/segments/{id}/contacts', function(array $p) {
+    Auth::require();
+    $sb = new SegmentBuilder();
+    $contacts = $sb->resolve((int)$p['id']);
+    Response::ok($contacts);
+});
+
+$router->get('/segments/{id}/count', function(array $p) {
+    Auth::require();
+    $sb = new SegmentBuilder();
+    Response::ok(['count' => $sb->count((int)$p['id'])]);
+});
+
+$router->delete('/segments/{id}', function(array $p) {
+    Auth::require();
+    DB::run('DELETE FROM contact_segments WHERE id=?', [(int)$p['id']]);
+    Response::ok(null, 'Segment deleted');
+});
+
+// ═══════════════════════════════════════════════════════════════
+// AI CAPTION GENERATOR (new endpoint wrapping CaptionGenerator)
+// ═══════════════════════════════════════════════════════════════
+$router->post('/ai/generate-caption', function() {
+    Auth::require();
+    $b = body();
+    required($b, ['topic']);
+    $key = getenv('OPENAI_API_KEY') ?: (DB::one("SELECT value FROM settings WHERE key_name='openai_api_key'")['value'] ?? '');
+    if (!$key) Response::json(['error' => 'OpenAI key not configured'], 400);
+    $gen = new CaptionGenerator($key);
+    $caption = $gen->generate($b['topic'], $b['platform'] ?? 'general', $b['tone'] ?? 'engaging');
+    Response::ok(['caption' => $caption]);
 });
 
 $router->dispatch();
