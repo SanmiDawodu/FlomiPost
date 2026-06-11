@@ -1,0 +1,64 @@
+name: lint
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+
+      - name: PHP syntax check
+        run: |
+          set -e
+          found=0
+          while IFS= read -r f; do
+            found=1
+            php -l "$f"
+          done < <(find . -name '*.php' -not -path './vendor/*')
+          [ "$found" -eq 1 ] || echo "no PHP files found"
+
+      - name: Bash syntax check
+        run: |
+          set -e
+          while IFS= read -r f; do
+            bash -n "$f" && echo "OK: $f"
+          done < <(find . -name '*.sh' -not -path './node_modules/*')
+
+      - name: nginx config syntax check
+        run: |
+          # The snippets are partial configs (location blocks / add_header
+          # directives), so wrap them in a minimal http/server skeleton and
+          # validate with the real nginx parser.
+          sudo apt-get update -q && sudo apt-get install -y -q nginx
+          mkdir -p /tmp/ngx/snippets
+          cp deploy/nginx/security-headers.conf /tmp/ngx/snippets/flomipost-security-headers.conf
+          # Strip the commented include-path instructions; keep real directives.
+          {
+            echo 'events {}'
+            echo 'http { server { listen 127.0.0.1:8080;'
+            echo '  include /tmp/ngx/snippets/flomipost-security-headers.conf;'
+            sed 's#/etc/nginx/snippets/flomipost-security-headers.conf#/tmp/ngx/snippets/flomipost-security-headers.conf#' \
+              deploy/nginx/scheduler.flomicso.dev.snippet.conf
+            echo '} }'
+          } > /tmp/ngx/test.conf
+          sudo nginx -t -c /tmp/ngx/test.conf
+
+      - name: SQL smoke check (MariaDB parse via syntax-only container)
+        run: |
+          # Validate the migration parses by running it against a throwaway MariaDB.
+          docker run -d --name mdb -e MARIADB_ROOT_PASSWORD=ci -e MARIADB_DATABASE=flowpost mariadb:11
+          for i in $(seq 1 30); do
+            docker exec mdb mariadb -uroot -pci -e 'SELECT 1' >/dev/null 2>&1 && break
+            sleep 2
+          done
+          docker exec -i mdb mariadb -uroot -pci flowpost < backend/migrations/2026_06_send_ledger.sql
+          docker exec mdb mariadb -uroot -pci flowpost -e 'SHOW CREATE TABLE send_ledger\G'
