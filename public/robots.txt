@@ -1,0 +1,4 @@
+# scheduler.flomicso.dev is a private, login-gated admin tool.
+# There is nothing here for search engines to index.
+User-agent: *
+Disallow: /
