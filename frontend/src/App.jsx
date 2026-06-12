@@ -23,7 +23,7 @@ const ReportsPage = lazy(() => import('./pages/ReportsPage'))
 const WhatsAppContactsPage = lazy(() => import('./pages/WhatsAppContactsPage'))
 const BroadcastPage = lazy(() => import('./pages/BroadcastPage'))
 const SocialListeningPage = lazy(() => import('./pages/SocialListeningPage'))
-const AAAnalyticsPage = lazy(() => import('./pages/GAAnalyticsPage'))
+const GAAnalyticsPage = lazy(() => import('./pages/GAAnalyticsPage'))
 const EmailPage = lazy(() => import('./pages/EmailPage'))
 const TemplatesPage = lazy(() => import('./pages/TemplatesPage'))
 const LeadOutreachPage = lazy(() => import('./pages/LeadOutreachPage'))
@@ -47,7 +47,7 @@ const LeadMagnetOptinPage = lazy(() => import('./pages/LeadMagnetOptinPage'))
 const TodoPage = lazy(() => import('./pages/TodoPage'))
 const ChannelHealthPage = lazy(() => import('./pages/ChannelHealthPage'))
 
-const qc = new QueryClient({defaultOptions:queries:{retry:1,staleTime:30000}}})
+const qc = new QueryClient({defaultOptions:{queries:{retry:1,staleTime:30000}}})
 
 function PrivateRoute({children}) {
   const {user,loading} = useAuthStore()
@@ -105,7 +105,7 @@ export default function App() {
               <Route path="signatures" element={<SignaturesPage/>}/>
               <Route path="recycle" element={<RecyclePage/>}/>
               <Route path="bulk-import" element={<BulkImportPage/>}/>
-              <Route path="rss-feeds" element={<RSRFeedsPage/>}/>
+              <Route path="rss-feeds" element={<RSSFeedsPage/>}/>
               <Route path="labels" element={<LabelsPage/>}/>
               <Route path="approvals" element={<ApprovalsPage/>}/>
               <Route path="ai-schedule" element={<AISchedulePage/>}/>
@@ -114,7 +114,7 @@ export default function App() {
           </Routes>
         </Suspense>
       </BrowserRouter>
-      <Toaster position="bottom-right" toastOptions={{style:{background:'#1a0f4e',color:'#f0eeff',border:'1px solid rgba(91,60,245,0.3)',fontFamily:'Plus Jakarta Sans,sans-serif',fontSize:'13px',borderRadius:'10px'},success:{iconTheme:{primary:'#10b981'secondary:'#1a0f4e'}},error:{iconTheme:{primary:'#ff5c6a'secondary:'#1a0f4e'}}}}/>
+      <Toaster position="bottom-right" toastOptions={{style:{background:'#1a0f4e',color:'#f0eeff',border:'1px solid rgba(91,60,245,0.3)',fontFamily:'Plus Jakarta Sans,sans-serif',fontSize:'13px',borderRadius:'10px'},success:{iconTheme:{primary:'#10b981',secondary:'#1a0f4e'}},error:{iconTheme:{primary:'#ff5c6a',secondary:'#1a0f4e'}}}}/>
     </QueryClientProvider>
   )
 }
