@@ -22,15 +22,9 @@ jobs:
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           script_stop: true
-          debug: true
           script: |
-            set -euxo pipefail
+            set -euo pipefail
             APP=/var/www/flowpost
-            ENV="$APP/.env"
-
-            DB_USER=$(grep -E '^DB_USER=' "$ENV" | cut -d= -f2 | tr -d '"' | tr -d "'")
-            DB_PASS=$(grep -E '^DB_PASS=' "$ENV" | cut -d= -f2 | tr -d '"' | tr -d "'")
-            DB_NAME=$(grep -E '^DB_NAME=' "$ENV" | head -1 | cut -d= -f2 | tr -d '"' | tr -d "'" || echo flowpost)
 
             echo "==> Pulling latest code"
             cd "$APP"
@@ -47,12 +41,12 @@ jobs:
               echo "==> Running migrations"
               for f in "$APP"/backend/migrations/*.sql; do
                 fname=$(basename "$f")
-                applied=$(mysql -u"$DB_USER" -p"$DB_PASS" "$DB_NAME" \
+                applied=$(mysql -u root flowpost \
                   -sse "SELECT COUNT(*) FROM _migrations WHERE name='$fname' LIMIT 1" 2>/dev/null || echo 0)
                 if [[ "$applied" -eq 0 ]]; then
                   echo "  Applying $fname"
-                  mysql -u"$DB_USER" -p"$DB_PASS" "$DB_NAME" < "$f"
-                  mysql -u"$DB_USER" -p"$DB_PASS" "$DB_NAME" \
+                  mysql -u root flowpost < "$f"
+                  mysql -u root flowpost \
                     -e "INSERT IGNORE INTO _migrations (name, applied_at) VALUES ('$fname', NOW())"
                 else
                   echo "  Skipping $fname (already applied)"
