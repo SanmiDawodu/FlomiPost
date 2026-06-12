@@ -34,9 +34,14 @@ jobs:
 
             echo "==> Pulling latest code"
             cd "$APP"
-            git fetch origin main
-            git checkout main
-            git pull origin main
+            BRANCH=claude/affectionate-dijkstra-ked6ul
+            if [ ! -d "$APP/.git" ]; then
+              git init
+              git remote add origin https://github.com/sanmidawodu/flomipost.git
+            fi
+            git fetch origin "$BRANCH"
+            git checkout -B "$BRANCH" FETCH_HEAD
+            git reset --hard FETCH_HEAD
 
             if [[ "$RUN_MIGRATIONS" == "true" ]]; then
               echo "==> Running migrations"
@@ -59,7 +64,7 @@ jobs:
             cd "$APP/frontend"
             npm ci --prefer-offline
             npm run build
-            rsync -a --delete "$APP/frontend/dist/" "$APP/public/"
+            # vite.config.js sets outDir to ../public — no rsync needed
 
             echo "==> Reloading PHP-FPM"
             systemctl reload php8.3-fpm 2>/dev/null \
