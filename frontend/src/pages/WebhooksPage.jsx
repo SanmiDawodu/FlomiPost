@@ -1,19 +1,21 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '../utils/api'
+import { useMultiSelect } from '../hooks/useMultiSelect'
+import BulkActionBar from '../components/BulkActionBar'
 import toast from 'react-hot-toast'
 import { Plus, Trash2, Send, ChevronDown, ChevronUp, Copy, Check } from 'lucide-react'
 
 const ALL_EVENTS = [
-  'post.published', 'post.failed', 'post.approved', 'post.rejected',
-  'queue.processed', 'webhook.test',
+  'post.published','post.failed','post.approved','post.rejected',
+  'queue.processed','webhook.test',
 ]
 
 export default function WebhooksPage() {
   const qc = useQueryClient()
   const [showForm, setShowForm] = useState(false)
   const [url, setUrl] = useState('')
-  const [events, setEvents] = useState(['post.published', 'post.failed'])
+  const [events, setEvents] = useState(['post.published','post.failed'])
   const [expandedId, setExpandedId] = useState(null)
   const [copiedId, setCopiedId] = useState(null)
 
@@ -21,6 +23,8 @@ export default function WebhooksPage() {
     queryKey: ['webhooks'],
     queryFn: () => api.get('/webhooks').then(r => r.data.data ?? r.data),
   })
+
+  const ms = useMultiSelect(webhooks)
 
   const { data: deliveries } = useQuery({
     queryKey: ['wh-deliveries', expandedId],
@@ -41,8 +45,14 @@ export default function WebhooksPage() {
   })
 
   const deleteMutation = useMutation({
-    mutationFn: (id) => api.delete(`/webhooks/${id}`),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['webhooks'] }); toast.success('Deleted') },
+    mutationFn: (ids) => ids.length === 1
+      ? api.delete(`/webhooks/${ids[0]}`)
+      : api.post('/webhooks/bulk-delete', { ids }),
+    onSuccess: (_, ids) => {
+      qc.invalidateQueries({ queryKey: ['webhooks'] })
+      toast.success(`${ids.length} webhook${ids.length > 1 ? 's' : ''} deleted`)
+      ms.clear()
+    },
     onError: (e) => toast.error(e.message),
   })
 
@@ -61,19 +71,17 @@ export default function WebhooksPage() {
   const toggleEvent = (ev) => setEvents(prev =>
     prev.includes(ev) ? prev.filter(e => e !== ev) : [...prev, ev]
   )
-
-  const copyUrl = (id, u) => {
-    navigator.clipboard.writeText(u)
-    setCopiedId(id)
-    setTimeout(() => setCopiedId(null), 2000)
+  const copyUrl = (id, u) => { navigator.clipboard.writeText(u); setCopiedId(id); setTimeout(() => setCopiedId(null), 2000) }
+  const confirmDelete = (ids) => {
+    if (!window.confirm(`Delete ${ids.length} webhook${ids.length > 1 ? 's' : ''}?`)) return
+    deleteMutation.mutate(ids)
   }
 
   return (
     <div className="p-6 max-w-4xl mx-auto">
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-bold">Outbound Webhooks</h1>
-        <button
-          onClick={() => setShowForm(v => !v)}
+        <button onClick={() => setShowForm(v => !v)}
           className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-xl text-sm font-medium hover:bg-purple-700 transition-colors"
         ><Plus size={16}/> New Webhook</button>
       </div>
@@ -82,44 +90,46 @@ export default function WebhooksPage() {
         <div className="bg-white/5 border border-white/10 rounded-2xl p-5 mb-6">
           <h3 className="font-semibold mb-4">New Webhook</h3>
           <label className="block text-sm text-gray-400 mb-1">Endpoint URL</label>
-          <input
-            type="url"
+          <input type="url"
             className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm mb-4 focus:outline-none focus:border-purple-500"
-            placeholder="https://your-server.com/webhook"
-            value={url}
-            onChange={e => setUrl(e.target.value)}
-          />
-          <label className="block text-sm text-gray-400 mb-2">Events to subscribe</label>
+            placeholder="https://your-server.com/webhook" value={url} onChange={e => setUrl(e.target.value)}/>
+          <label className="block text-sm text-gray-400 mb-2">Events</label>
           <div className="flex flex-wrap gap-2 mb-4">
             {ALL_EVENTS.map(ev => (
-              <button
-                key={ev}
-                onClick={() => toggleEvent(ev)}
+              <button key={ev} onClick={() => toggleEvent(ev)}
                 className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${events.includes(ev) ? 'bg-purple-600 text-white' : 'bg-white/5 text-gray-400 hover:bg-white/10'}`}
               >{ev}</button>
             ))}
           </div>
           <div className="flex justify-end gap-2">
             <button onClick={() => setShowForm(false)} className="px-4 py-2 text-sm text-gray-400 hover:text-white">Cancel</button>
-            <button
-              onClick={() => createMutation.mutate()}
-              disabled={!url || !events.length || createMutation.isPending}
+            <button onClick={() => createMutation.mutate()} disabled={!url || !events.length || createMutation.isPending}
               className="px-4 py-2 text-sm bg-purple-600 text-white rounded-lg disabled:opacity-40 hover:bg-purple-700 transition-colors"
             >{createMutation.isPending ? 'Creating…' : 'Create Webhook'}</button>
           </div>
         </div>
       )}
 
+      {webhooks.length > 0 && (
+        <div className="flex items-center gap-3 mb-4">
+          <input type="checkbox" checked={ms.allSelected} ref={el => el && (el.indeterminate = ms.someSelected)}
+            onChange={ms.toggleAll} className="accent-purple-500 w-4 h-4"/>
+          <span className="text-sm text-gray-400">{ms.count > 0 ? `${ms.count} selected` : 'Select all'}</span>
+        </div>
+      )}
+
       {isLoading && <p className="text-gray-400">Loading…</p>}
       {!isLoading && webhooks.length === 0 && (
-        <p className="text-gray-500 text-center py-16">No webhooks yet. Create one to receive real-time events.</p>
+        <p className="text-gray-500 text-center py-16">No webhooks yet.</p>
       )}
 
       <div className="space-y-3">
         {webhooks.map(wh => (
-          <div key={wh.id} className="bg-white/5 border border-white/10 rounded-xl overflow-hidden">
+          <div key={wh.id} className={`border rounded-xl overflow-hidden transition-colors ${ms.selected.has(wh.id) ? 'border-purple-500/50 bg-purple-500/10' : 'bg-white/5 border-white/10'}`}>
             <div className="flex items-center gap-3 p-4">
-              <div className={`w-2 h-2 rounded-full shrink-0 ${wh.active ? 'bg-green-400' : 'bg-gray-500'}`} />
+              <input type="checkbox" checked={ms.selected.has(wh.id)} onChange={() => ms.toggle(wh.id)}
+                className="accent-purple-500 w-4 h-4 shrink-0"/>
+              <div className={`w-2 h-2 rounded-full shrink-0 ${wh.active ? 'bg-green-400' : 'bg-gray-500'}`}/>
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2">
                   <p className="text-sm font-mono truncate">{wh.url}</p>
@@ -134,47 +144,43 @@ export default function WebhooksPage() {
                 </div>
               </div>
               <div className="flex items-center gap-2 shrink-0">
-                <button
-                  onClick={() => testMutation.mutate(wh.id)}
+                <button onClick={() => testMutation.mutate(wh.id)}
                   className="flex items-center gap-1 px-2.5 py-1.5 bg-blue-600/20 text-blue-400 rounded-lg text-xs hover:bg-blue-600/30"
                 ><Send size={11}/> Test</button>
-                <button
-                  onClick={() => toggleMutation.mutate({ id: wh.id, active: wh.active })}
+                <button onClick={() => toggleMutation.mutate({ id: wh.id, active: wh.active })}
                   className={`px-2.5 py-1.5 rounded-lg text-xs ${wh.active ? 'bg-yellow-600/20 text-yellow-400 hover:bg-yellow-600/30' : 'bg-green-600/20 text-green-400 hover:bg-green-600/30'}`}
                 >{wh.active ? 'Disable' : 'Enable'}</button>
-                <button
-                  onClick={() => deleteMutation.mutate(wh.id)}
-                  className="p-1.5 text-red-400 hover:bg-red-600/20 rounded-lg"
-                ><Trash2 size={14}/></button>
-                <button
-                  onClick={() => setExpandedId(expandedId === wh.id ? null : wh.id)}
-                  className="p-1.5 text-gray-400 hover:text-white"
-                >{expandedId === wh.id ? <ChevronUp size={14}/> : <ChevronDown size={14}/>}</button>
+                <button onClick={() => confirmDelete([wh.id])} className="p-1.5 text-red-400 hover:bg-red-600/20 rounded-lg"><Trash2 size={14}/></button>
+                <button onClick={() => setExpandedId(expandedId === wh.id ? null : wh.id)} className="p-1.5 text-gray-400 hover:text-white">
+                  {expandedId === wh.id ? <ChevronUp size={14}/> : <ChevronDown size={14}/>}
+                </button>
               </div>
             </div>
-
             {expandedId === wh.id && (
               <div className="border-t border-white/10 p-4">
                 <p className="text-xs text-gray-400 mb-2 font-semibold">Recent Deliveries</p>
                 {!deliveries || deliveries.length === 0
                   ? <p className="text-xs text-gray-500">No deliveries yet</p>
-                  : (
-                    <div className="space-y-1">
-                      {deliveries.map((d, i) => (
-                        <div key={i} className="flex items-center gap-3 text-xs">
-                          <span className={`font-mono ${d.response_code >= 200 && d.response_code < 300 ? 'text-green-400' : 'text-red-400'}`}>{d.response_code ?? '—'}</span>
-                          <span className="text-gray-400">{d.event}</span>
-                          <span className="text-gray-600 ml-auto">{d.delivered_at ? new Date(d.delivered_at).toLocaleString() : '—'}</span>
-                        </div>
-                      ))}
+                  : deliveries.map((d, i) => (
+                    <div key={i} className="flex items-center gap-3 text-xs py-0.5">
+                      <span className={`font-mono ${d.response_code >= 200 && d.response_code < 300 ? 'text-green-400' : 'text-red-400'}`}>{d.response_code ?? '—'}</span>
+                      <span className="text-gray-400">{d.event}</span>
+                      <span className="text-gray-600 ml-auto">{d.delivered_at ? new Date(d.delivered_at).toLocaleString() : '—'}</span>
                     </div>
-                  )
+                  ))
                 }
               </div>
             )}
           </div>
         ))}
       </div>
+
+      <BulkActionBar
+        count={ms.count}
+        onDelete={() => confirmDelete([...ms.selected])}
+        onClear={ms.clear}
+        deleting={deleteMutation.isPending}
+      />
     </div>
   )
 }

@@ -97,6 +97,23 @@ $router->get('/posts/stats',function(){ Response::ok(PostModel::stats()); });
 $router->get('/posts/{id}',function(array $p){ Response::ok(PostModel::get((int)$p['id'])); });
 $router->put('/posts/{id}',function(array $p){ PostModel::update((int)$p['id'],body());Response::ok(null,'Updated'); });
 $router->delete('/posts/{id}',function(array $p){ PostModel::delete((int)$p['id']);Response::ok(null,'Deleted'); });
+$router->post('/posts/bulk-delete',function(){
+    Auth::requireRole('admin','editor');
+    $ids=array_map('intval',(array)(body()['ids']??[]));
+    if(!$ids) Response::json(['error'=>'No ids provided'],400);
+    $ph=implode(',',array_fill(0,count($ids),'?'));
+    DB::run("DELETE FROM posts WHERE id IN($ph)",$ids);
+    DB::run("DELETE FROM publish_queue WHERE post_id IN($ph)",$ids);
+    Response::ok(['deleted'=>count($ids)],count($ids).' posts deleted');
+});
+$router->post('/queue/bulk-delete',function(){
+    Auth::requireRole('admin','editor');
+    $ids=array_map('intval',(array)(body()['ids']??[]));
+    if(!$ids) Response::json(['error'=>'No ids provided'],400);
+    $ph=implode(',',array_fill(0,count($ids),'?'));
+    DB::run("DELETE FROM publish_queue WHERE id IN($ph)",$ids);
+    Response::ok(['deleted'=>count($ids)],count($ids).' queue items removed');
+});
 $router->post('/posts/{id}/publish-now',function(array $p){
     Auth::requireRole('admin','editor');$id=(int)$p['id'];
     DB::update('posts',['status'=>'scheduled','scheduled_at'=>date('Y-m-d H:i:s')],'id=?',[$id]);
@@ -236,6 +253,7 @@ $router->get('/activity',function(){
 $router->get('/labels',function(){ Auth::require();Response::ok(DB::all('SELECT * FROM labels ORDER BY name')); });
 $router->post('/labels',function(){ Auth::requireRole('admin','editor');$b=body();required($b,['name']);$id=DB::insert('labels',['name'=>$b['name'],'color'=>$b['color']??'#5b3cf5']);Response::ok(['id'=>$id],'Label created'); });
 $router->delete('/labels/{id}',function(array $p){ Auth::requireRole('admin','editor');DB::run('DELETE FROM labels WHERE id=?',[(int)$p['id']]);Response::ok(null,'Removed'); });
+$router->post('/labels/bulk-delete',function(){ Auth::requireRole('admin','editor');$ids=array_map('intval',(array)(body()['ids']??[]));if(!$ids)Response::json(['error'=>'No ids'],400);$ph=implode(',',array_fill(0,count($ids),'?'));DB::run("DELETE FROM labels WHERE id IN($ph)",$ids);Response::ok(['deleted'=>count($ids)]); });
 
 // TEMPLATES
 $router->get('/templates',function(){ Auth::require();Response::ok(DB::all('SELECT * FROM templates ORDER BY created_at DESC')); });
@@ -1633,6 +1651,14 @@ $router->delete('/todos/{id}', function(array $p) {
     Auth::require();
     DB::run('DELETE FROM todos WHERE id=?', [(int)$p['id']]);
     Response::ok(null, 'Task deleted');
+});
+$router->post('/todos/bulk-delete', function() {
+    Auth::require();
+    $ids = array_map('intval', (array)(body()['ids'] ?? []));
+    if (!$ids) Response::json(['error' => 'No ids'], 400);
+    $ph = implode(',', array_fill(0, count($ids), '?'));
+    DB::run("DELETE FROM todos WHERE id IN($ph)", $ids);
+    Response::ok(['deleted' => count($ids)]);
 });
 $router->get('/todo-categories', function() {
     Auth::require();
@@ -3687,6 +3713,14 @@ $router->delete('/templates/{id}', function(array $p) {
     DB::run('DELETE FROM post_templates WHERE id=?', [(int)$p['id']]);
     Response::ok(null, 'Template deleted');
 });
+$router->post('/templates/bulk-delete', function() {
+    Auth::require();
+    $ids = array_map('intval', (array)(body()['ids'] ?? []));
+    if (!$ids) Response::json(['error' => 'No ids provided'], 400);
+    $ph = implode(',', array_fill(0, count($ids), '?'));
+    DB::run("DELETE FROM post_templates WHERE id IN($ph)", $ids);
+    Response::ok(['deleted' => count($ids)], count($ids) . ' templates deleted');
+});
 
 $router->post('/templates/{id}/use', function(array $p) {
     $u = Auth::require();
@@ -3742,6 +3776,14 @@ $router->delete('/webhooks/{id}', function(array $p) {
     Auth::require();
     DB::run('DELETE FROM outbound_webhooks WHERE id=?', [(int)$p['id']]);
     Response::ok(null, 'Webhook deleted');
+});
+$router->post('/webhooks/bulk-delete', function() {
+    Auth::require();
+    $ids = array_map('intval', (array)(body()['ids'] ?? []));
+    if (!$ids) Response::json(['error' => 'No ids provided'], 400);
+    $ph = implode(',', array_fill(0, count($ids), '?'));
+    DB::run("DELETE FROM outbound_webhooks WHERE id IN($ph)", $ids);
+    Response::ok(['deleted' => count($ids)], count($ids) . ' webhooks deleted');
 });
 
 $router->get('/webhooks/{id}/deliveries', function(array $p) {
