@@ -22,9 +22,11 @@ jobs:
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           script_stop: true
+          envs: RUN_MIGRATIONS
           script: |
             set -euo pipefail
             APP=/var/www/flowpost
+            RUN_MIGRATIONS="${RUN_MIGRATIONS:-true}"
 
             echo "==> Pulling latest code"
             cd "$APP"
