@@ -42,15 +42,18 @@ jobs:
 
             if [[ "$RUN_MIGRATIONS" == "true" ]]; then
               echo "==> Running migrations"
+              mysql -u root flowpost -e "CREATE TABLE IF NOT EXISTS _migrations (id INT AUTO_INCREMENT PRIMARY KEY, name VARCHAR(255) NOT NULL, applied_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, UNIQUE KEY uq_name (name))" \
+                || echo "  WARN: could not ensure _migrations table"
               for f in "$APP"/backend/migrations/*.sql; do
                 fname=$(basename "$f")
-                applied=$(mysql -u root flowpost \
-                  -sse "SELECT COUNT(*) FROM _migrations WHERE name='$fname' LIMIT 1" 2>/dev/null || echo 0)
+                applied=$(mysql -u root flowpost -sse "SELECT COUNT(*) FROM _migrations WHERE name='$fname' LIMIT 1" 2>/dev/null || echo 0)
                 if [[ "$applied" -eq 0 ]]; then
                   echo "  Applying $fname"
-                  mysql -u root flowpost < "$f"
-                  mysql -u root flowpost \
-                    -e "INSERT IGNORE INTO _migrations (name, applied_at) VALUES ('$fname', NOW())"
+                  if out=$(mysql -u root flowpost < "$f" 2>&1); then
+                    mysql -u root flowpost -e "INSERT IGNORE INTO _migrations (name) VALUES ('$fname')" || true
+                  else
+                    echo "  WARN: $fname failed: $out"
+                  fi
                 else
                   echo "  Skipping $fname (already applied)"
                 fi
