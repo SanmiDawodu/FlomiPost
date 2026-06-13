@@ -1,33 +1,62 @@
-import { useState } from 'react'
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Globe, Plus, Trash2 } from 'lucide-react'
+import { useState } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { Globe, Plus, Trash2, ExternalLink } from 'lucide-react';
 
-const tok = () => localStorage.getItem('fp_token')
-const api = (url, opts={}) => fetch(url, {headers:{'Authorization':`Bearer ${tok()}`,'Content-Type':'application/json'},...opts}).then(r=>r.json())
-const s = { page:{padding:'24px'}, h1:{fontSize:'20px',fontWeight:700,marginBottom:'16px',color:'var(--text)'}, row:{background:'var(--surface)',border:'1px solid var(--border)',borderRadius:'var(--radius)',padding:'14px 16px',marginBottom:'8px',display:'flex',alignItems:'center',gap:12}, inp:{background:'var(--bg2)',border:'1px solid var(--border)',borderRadius:'var(--radius)',padding:'8px 12px',color:'var(--text)',fontSize:'13px',width:'100%'}, btn:{padding:'8px 14px',borderRadius:'var(--radius)',border:'none',cursor:'pointer',fontSize:'13px'} }
+const token = () => localStorage.getItem('fp_token');
+const h = () => ({ Authorization: `Bearer ${token()}`, 'Content-Type': 'application/json' });
 
 export default function SitesPage() {
-  const qc = useQueryClient()
-  const [name, setName] = useState('')
-  const [domain, setDomain] = useState('')
-  const { data, isLoading } = useQuery({ queryKey:['sites'], queryFn:()=>api('/api/sites') })
-  const create = useMutation({ mutationFn:()=>api('/api/sites',{method:'POST',body:JSON.stringify({name,domain})}), onSuccess:()=>{qc.invalidateQueries(['sites']);setName('');setDomain('')} })
-  const del = useMutation({ mutationFn:id=>api(`/api/sites/${id}`,{method:'DELETE'}), onSuccess:()=>qc.invalidateQueries(['sites']) })
-  const sites = data?.data || []
+  const qc = useQueryClient();
+  const [form, setForm] = useState({ name: '', url: '' });
+  const [open, setOpen] = useState(false);
+
+  const { data, isLoading } = useQuery({
+    queryKey: ['sites'],
+    queryFn: async () => { const r = await fetch('/api/sites', { headers: h() }); const j = await r.json(); return j.data || j; },
+  });
+
+  const create = useMutation({
+    mutationFn: async (p) => { const r = await fetch('/api/sites', { method: 'POST', headers: h(), body: JSON.stringify(p) }); if (!r.ok) throw new Error('Failed'); },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['sites'] }); setOpen(false); setForm({ name: '', url: '' }); },
+  });
+
+  const del = useMutation({
+    mutationFn: async (id) => { await fetch(`/api/sites/${id}`, { method: 'DELETE', headers: h() }); },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['sites'] }),
+  });
+
+  const page = { padding: '2rem', maxWidth: '1000px' };
+  const grid = { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '1rem', marginTop: '1.5rem' };
+  const card = { background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: '1.25rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' };
+  const input = { width: '100%', background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', color: 'var(--text)', padding: '0.55rem 0.75rem', fontSize: '0.88rem', boxSizing: 'border-box', marginBottom: '0.75rem' };
+  const btn = (v) => ({ padding: '0.4rem 0.9rem', borderRadius: 'var(--radius)', border: '1px solid var(--border)', background: v === 'accent' ? 'var(--accent)' : 'transparent', color: v === 'danger' ? 'var(--danger)' : 'var(--text)', cursor: 'pointer', fontSize: '0.82rem', display: 'inline-flex', alignItems: 'center', gap: '0.35rem' });
+
   return (
-    <div style={s.page}>
-      <h1 style={s.h1}><Globe size={18} style={{marginRight:8,verticalAlign:'middle'}}/>Sites</h1>
-      <div style={{display:'flex',gap:8,marginBottom:20}}>
-        <input style={s.inp} placeholder="Site name" value={name} onChange={e=>setName(e.target.value)}/>
-        <input style={s.inp} placeholder="Domain" value={domain} onChange={e=>setDomain(e.target.value)}/>
-        <button style={{...s.btn,background:'var(--accent)',color:'#fff',whiteSpace:'nowrap'}} onClick={()=>create.mutate()}><Plus size={14}/> Add</button>
+    <div style={page}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <h1 style={{ color: 'var(--text)', margin: 0, display: 'flex', alignItems: 'center', gap: '0.5rem' }}><Globe size={22} /> Sites</h1>
+        <button style={btn('accent')} onClick={() => setOpen(o => !o)}><Plus size={15} /> Add Site</button>
       </div>
-      {isLoading ? <p style={{color:'var(--text2)'}}>Loading…</p> : sites.map(s2=>(
-        <div key={s2.id} style={s.row}>
-          <div style={{flex:1}}><div style={{fontWeight:600,color:'var(--text)'}}>{s2.name}</div><div style={{fontSize:'12px',color:'var(--text2)'}}>{s2.domain}</div></div>
-          <button onClick={()=>del.mutate(s2.id)} style={{padding:'6px',background:'rgba(255,92,106,0.1)',border:'none',borderRadius:'6px',cursor:'pointer',color:'var(--danger)'}}><Trash2 size={14}/></button>
+      {open && (
+        <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: '1.25rem', marginTop: '1.25rem' }}>
+          <input style={input} placeholder="Site name" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} />
+          <input style={input} type="url" placeholder="https://yoursite.com" value={form.url} onChange={e => setForm(f => ({ ...f, url: e.target.value }))} />
+          <button style={btn('accent')} onClick={() => create.mutate(form)} disabled={create.isPending || !form.name}>{create.isPending ? 'Saving…' : 'Create'}</button>
         </div>
-      ))}
+      )}
+      {isLoading && <p style={{ color: 'var(--text2)', marginTop: '1rem' }}>Loading…</p>}
+      <div style={grid}>
+        {data?.map(s => (
+          <div key={s.id} style={card}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+              <div style={{ fontWeight: 700, color: 'var(--text)', fontSize: '1rem' }}>{s.name}</div>
+              <button style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--danger)', padding: 0 }} onClick={() => del.mutate(s.id)}><Trash2 size={14} /></button>
+            </div>
+            {s.url && <a href={s.url} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent)', fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '0.25rem', textDecoration: 'none' }}><ExternalLink size={12} />{s.url}</a>}
+            <div style={{ fontSize: '0.8rem', color: 'var(--text2)' }}>{s.post_count ?? 0} posts</div>
+          </div>
+        ))}
+      </div>
     </div>
-  )
+  );
 }

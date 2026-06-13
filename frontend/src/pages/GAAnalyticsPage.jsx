@@ -1,63 +1,58 @@
-import { useQuery } from '@tanstack/react-query'
-import { BarChart2, ExternalLink, RefreshCw } from 'lucide-react'
+import { useQuery } from '@tanstack/react-query';
+import { TrendingUp } from 'lucide-react';
 
-const tok = () => localStorage.getItem('fp_token')
-const api = (url, opts={}) => fetch(url, {headers:{'Authorization':`Bearer ${tok()}`,'Content-Type':'application/json'},...opts}).then(r=>r.json())
+const token = () => localStorage.getItem('fp_token');
+const h = () => ({ Authorization: `Bearer ${token()}` });
 
-const Stat = ({ label, value, sub }) => (
-  <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: '1.25rem 1.5rem', flex: 1, minWidth: 160 }}>
-    <div style={{ fontSize: '0.78rem', color: 'var(--text2)', marginBottom: '0.5rem', textTransform: 'uppercase', letterSpacing: '0.04em' }}>{label}</div>
-    <div style={{ fontSize: '2rem', fontWeight: 700, color: 'var(--text)', lineHeight: 1 }}>{value ?? '—'}</div>
-    {sub && <div style={{ fontSize: '0.78rem', color: 'var(--text2)', marginTop: '0.4rem' }}>{sub}</div>}
+const StatCard = ({ label, value, sub }) => (
+  <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: '1.25rem 1.5rem' }}>
+    <div style={{ fontSize: '0.8rem', color: 'var(--text2)', marginBottom: '0.5rem' }}>{label}</div>
+    <div style={{ fontSize: '2rem', fontWeight: 700, color: 'var(--text)' }}>{value ?? '—'}</div>
+    {sub && <div style={{ fontSize: '0.78rem', color: 'var(--text2)', marginTop: '0.25rem' }}>{sub}</div>}
   </div>
-)
+);
 
 export default function GAAnalyticsPage() {
-  const { data, isLoading, error } = useQuery({ queryKey: ['ga-reports'], queryFn: () => api('/api/ga/reports') })
+  const { data, isLoading, error } = useQuery({
+    queryKey: ['ga-analytics'],
+    queryFn: async () => { const r = await fetch('/api/ga-analytics', { headers: h() }); if (!r.ok) throw new Error('Failed'); const j = await r.json(); return j.data || j; },
+  });
 
-  if (isLoading) return <div style={{ padding: '2rem', color: 'var(--text2)' }}>Loading analytics…</div>
-
-  if (error || data?.error || !data?.connected) {
-    return (
-      <div style={{ padding: '2rem', maxWidth: 500 }}>
-        <h1 style={{ color: 'var(--text)', margin: '0 0 1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}><BarChart2 size={22} /> Google Analytics</h1>
-        <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: '2rem', textAlign: 'center' }}>
-          <BarChart2 size={40} style={{ color: 'var(--text2)', marginBottom: '1rem' }} />
-          <p style={{ color: 'var(--text2)', marginBottom: '1.5rem' }}>Connect your Google Analytics account to see reports.</p>
-          <a href="/api/oauth/google-analytics/connect" style={{ display: 'inline-flex', alignItems: 'center', gap: 8, background: 'var(--accent)', color: '#fff', textDecoration: 'none', borderRadius: 'var(--radius)', padding: '10px 20px', fontWeight: 600 }}>
-            <ExternalLink size={15} /> Connect Google Analytics
-          </a>
-        </div>
-      </div>
-    )
-  }
-
-  const r = data?.report || data || {}
+  const page = { padding: '2rem', maxWidth: '1000px' };
+  const grid = { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '1rem', marginBottom: '2rem' };
+  const table = { width: '100%', borderCollapse: 'collapse' };
+  const th = { textAlign: 'left', padding: '0.75rem 1rem', background: 'var(--surface)', color: 'var(--text2)', fontSize: '0.8rem', fontWeight: 600, borderBottom: '1px solid var(--border)' };
+  const td = { padding: '0.7rem 1rem', borderBottom: '1px solid var(--border)', color: 'var(--text)', fontSize: '0.85rem' };
 
   return (
-    <div style={{ padding: '2rem', maxWidth: 900 }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
-        <h1 style={{ color: 'var(--text)', margin: 0, display: 'flex', alignItems: 'center', gap: '0.5rem' }}><BarChart2 size={22} /> Google Analytics</h1>
-        <span style={{ fontSize: '0.8rem', color: 'var(--text2)' }}>Last 30 days</span>
-      </div>
-      <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap', marginBottom: '2rem' }}>
-        <Stat label="Sessions" value={r.sessions?.toLocaleString()} />
-        <Stat label="Pageviews" value={r.pageviews?.toLocaleString()} />
-        <Stat label="Bounce Rate" value={r.bounce_rate ? `${r.bounce_rate}%` : '—'} />
-        <Stat label="Avg. Session" value={r.avg_session_duration} />
-        <Stat label="New Users" value={r.new_users?.toLocaleString()} />
-      </div>
-      {r.top_pages?.length > 0 && (
-        <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: '1.25rem' }}>
-          <h3 style={{ color: 'var(--text)', margin: '0 0 1rem', fontSize: '0.95rem' }}>Top Pages</h3>
-          {r.top_pages.map((p, i) => (
-            <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '0.5rem 0', borderBottom: i < r.top_pages.length - 1 ? '1px solid var(--border)' : 'none' }}>
-              <span style={{ color: 'var(--text)', fontSize: '0.85rem' }}>{p.path}</span>
-              <span style={{ color: 'var(--text2)', fontSize: '0.85rem' }}>{p.views?.toLocaleString()} views</span>
-            </div>
-          ))}
-        </div>
+    <div style={page}>
+      <h1 style={{ color: 'var(--text)', margin: '0 0 1.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}><TrendingUp size={22} /> Google Analytics</h1>
+      {isLoading && <p style={{ color: 'var(--text2)' }}>Loading…</p>}
+      {error && <p style={{ color: 'var(--danger)' }}>{error.message}</p>}
+      {data && (
+        <>
+          <div style={grid}>
+            <StatCard label="Pageviews" value={data.pageviews?.toLocaleString()} sub="last 30 days" />
+            <StatCard label="Sessions" value={data.sessions?.toLocaleString()} sub="last 30 days" />
+            <StatCard label="Bounce Rate" value={data.bounce_rate ? `${data.bounce_rate}%` : undefined} sub="avg" />
+            <StatCard label="Avg. Duration" value={data.avg_duration} sub="per session" />
+            <StatCard label="New Users" value={data.new_users?.toLocaleString()} sub="last 30 days" />
+          </div>
+          {data.pages && (
+            <>
+              <h2 style={{ color: 'var(--text)', fontSize: '1rem', marginBottom: '0.75rem' }}>Top Pages</h2>
+              <table style={table}>
+                <thead><tr><th style={th}>Page</th><th style={th}>Views</th><th style={th}>Avg Time</th></tr></thead>
+                <tbody>
+                  {data.pages.map((p, i) => (
+                    <tr key={i}><td style={td}>{p.path}</td><td style={td}>{p.views?.toLocaleString()}</td><td style={td}>{p.avg_time || '—'}</td></tr>
+                  ))}
+                </tbody>
+              </table>
+            </>
+          )}
+        </>
       )}
     </div>
-  )
+  );
 }
