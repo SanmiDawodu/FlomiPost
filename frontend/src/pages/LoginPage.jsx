@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Zap, LogIn } from 'lucide-react';
-import useAuthStore from '../store/authStore';
+import { useAuthStore } from '../store/authStore';
 
 const pageStyle = {
   minHeight: '100vh',
