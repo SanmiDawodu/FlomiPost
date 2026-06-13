@@ -33,8 +33,8 @@ jobs:
             if [ ! -d "$APP/.git" ]; then git init && git remote add origin https://github.com/sanmidawodu/flomipost.git; fi
             rm -f "$APP/FETCH_HEAD"
             git fetch origin "$BRANCH"
-            git checkout -B "$BRANCH" -f "origin/$BRANCH"
-            git reset --hard "origin/$BRANCH" --
+            git checkout -B "$BRANCH" "origin/$BRANCH" || git checkout "$BRANCH"
+            git reset --hard "origin/$BRANCH"
             if [[ "$RUN_MIGRATIONS" == "true" ]]; then
               echo "==> Running migrations"
               mariadb -u root flowpost -e "CREATE TABLE IF NOT EXISTS _migrations (id INT AUTO_INCREMENT PRIMARY KEY, name VARCHAR(255) NOT NULL, applied_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, UNIQUE KEY uq_name (name))" || echo "  WARN: could not ensure _migrations table"
