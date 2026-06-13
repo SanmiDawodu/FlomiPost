@@ -48,6 +48,7 @@ require_once __DIR__.'/core/Auth/TOTPAuthenticator.php';
 require_once __DIR__.'/core/Health/ChannelHealthTracker.php';
 require_once __DIR__.'/core/Scheduling/BulkImporter.php';
 require_once __DIR__.'/core/Contacts/SegmentBuilder.php';
+require_once __DIR__.'/core/Safety/RecipientGuard.php';
 
 $origin=$_SERVER['HTTP_ORIGIN']??'';
 $allowed=[APP_URL,'http://localhost:5173','http://localhost:3000'];
@@ -1542,24 +1543,78 @@ $router->post('/whatsapp/test', function() {
     $segId   = isset($b['segment_id']) && $b['segment_id'] ? (int)$b['segment_id'] : null;
     $to      = $b['to'] ?? null;
 
-    // Segment send — send to all contacts in segment
+    // Segment send — guarded fan-out to contacts in a segment
     if ($segId && !$to) {
+        // RecipientGuard: refuse implicit send-to-all (segment -1 means "everyone")
         if ($segId === -1) {
-            $recipients = DB::all('SELECT phone FROM sms_contacts WHERE site_id=? AND active=1', [$siteId]);
-        } else {
-            $recipients = DB::all('SELECT phone FROM sms_contacts WHERE site_id=? AND segment_id=? AND active=1', [$siteId, $segId]);
+            Response::json(['error' => 'RecipientGuard: segment_id -1 (send-to-all) is disabled. Set an explicit segment.'], 400);
         }
-        if (empty($recipients)) Response::json(['error'=>'No contacts in this segment'],400);
-        $sent = 0;
+
+        // Ensure segment has contacts before we proceed
+        $hasContacts = DB::one(
+            'SELECT 1 FROM sms_contacts WHERE site_id=? AND segment_id=? AND active=1 LIMIT 1',
+            [$siteId, $segId]
+        );
+        if (!$hasContacts) {
+            Response::json(['error' => 'RecipientGuard: segment has 0 active contacts. Refusing to send.'], 400);
+        }
+
+        $recipients = DB::all(
+            'SELECT phone FROM sms_contacts WHERE site_id=? AND segment_id=? AND active=1',
+            [$siteId, $segId]
+        );
+        if (empty($recipients)) Response::json(['error'=>'No contacts in this segment'], 400);
+
+        // RecipientGuard: cap check — require explicit confirmed count for large blasts
+        $cap = 50;
+        $confirmedCount = isset($b['confirmed_recipient_count']) ? (int)$b['confirmed_recipient_count'] : null;
+        if (count($recipients) > $cap && $confirmedCount !== count($recipients)) {
+            Response::json([
+                'error' => sprintf(
+                    'RecipientGuard: blast of %d recipients exceeds the unconfirmed cap of %d. '
+                    . 'Pass confirmed_recipient_count=%d to proceed.',
+                    count($recipients), $cap, count($recipients)
+                )
+            ], 400);
+        }
+
+        // Ensure send_ledger table exists (idempotency table for RecipientGuard)
+        DB::run("CREATE TABLE IF NOT EXISTS send_ledger (
+            id            BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+            post_id       INT NOT NULL DEFAULT 0,
+            connection_id INT NOT NULL,
+            channel       VARCHAR(32) NOT NULL DEFAULT 'whatsapp',
+            recipient     VARCHAR(64) NOT NULL,
+            site_id       INT DEFAULT NULL,
+            segment_id    INT DEFAULT NULL,
+            status        ENUM('sent','failed') NOT NULL DEFAULT 'sent',
+            created_at    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE KEY uq_send (post_id, connection_id, recipient)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+
+        $sent = 0; $skipped = 0;
         foreach ($recipients as $r) {
+            // Idempotency: skip if already sent (post_id 0 = ad-hoc blast keyed on conn+segment+phone)
+            $claimed = DB::run(
+                "INSERT IGNORE INTO send_ledger (post_id, connection_id, channel, recipient, site_id, segment_id)
+                 VALUES (0, ?, 'whatsapp', ?, ?, ?)",
+                [(int)$connId, $r['phone'], $siteId, $segId]
+            );
+            if (!$claimed) { $skipped++; continue; }
+
             $payload = ['messaging_product'=>'whatsapp','recipient_type'=>'individual','to'=>$r['phone'],'type'=>'text','text'=>['body'=>$b['message']]];
             $ch=curl_init("https://graph.facebook.com/v19.0/{$phoneId}/messages");
             curl_setopt_array($ch,[CURLOPT_RETURNTRANSFER=>true,CURLOPT_POST=>true,CURLOPT_POSTFIELDS=>json_encode($payload),
                 CURLOPT_HTTPHEADER=>["Authorization: Bearer {$token}",'Content-Type: application/json']]);
             $res=json_decode(curl_exec($ch),true);curl_close($ch);
-            if(isset($res['messages'])) $sent++;
+            if(isset($res['messages'])) {
+                $sent++;
+            } else {
+                DB::run("UPDATE send_ledger SET status='failed' WHERE connection_id=? AND recipient=? AND post_id=0",
+                    [(int)$connId, $r['phone']]);
+            }
         }
-        Response::ok(['sent_to'=>$sent], "WhatsApp sent to {$sent} contacts!");
+        Response::ok(['sent_to'=>$sent,'skipped'=>$skipped], "WhatsApp sent to {$sent} contacts!");
     }
 
     // Single number send
