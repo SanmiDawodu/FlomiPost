@@ -7,7 +7,7 @@ import {
   UsersRound, UserCog, PenTool, Puzzle, Webhook, CheckCircle, Upload,
   Activity, Settings, LogOut
 } from 'lucide-react';
-import useAuthStore from '../store/authStore';
+import { useAuthStore } from '../store/authStore';
 
 const navGroups = [
   {
