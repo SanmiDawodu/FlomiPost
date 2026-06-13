@@ -12,7 +12,7 @@ export const useAuthStore = create((set) => ({
     }
 
     try {
-      const response = await fetch('/api/me', {
+      const response = await fetch('/api/auth/me', {
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json',
