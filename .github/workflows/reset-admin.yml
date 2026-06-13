@@ -1,0 +1,44 @@
+name: reset-admin
+
+on:
+  workflow_dispatch:
+    inputs:
+      new_password:
+        description: 'New admin password'
+        required: true
+        default: 'FlomiPost2026!'
+
+jobs:
+  reset:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Reset admin password
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          password: ${{ secrets.SSH_PASSWORD }}
+          script: |
+            set -euo pipefail
+            ENV=/var/www/flowpost/.env
+            DB_USER=$(grep -E '^DB_USER=' "$ENV" | cut -d= -f2 | tr -d '"' | tr -d "'")
+            DB_PASS=$(grep -E '^DB_PASS=' "$ENV" | cut -d= -f2 | tr -d '"' | tr -d "'")
+            DB_NAME=$(grep -E '^DB_NAME=' "$ENV" | head -1 | cut -d= -f2 | tr -d '"' | tr -d "'" || echo flowpost)
+
+            echo "==> Current users:"
+            mysql -u"$DB_USER" -p"$DB_PASS" "$DB_NAME" -e "SELECT id, email, name, role FROM users LIMIT 10;"
+
+            NEW_PASS="${NEW_PASSWORD}"
+            HASH=$(php -r "echo password_hash('$NEW_PASS', PASSWORD_BCRYPT);")
+
+            echo "==> Updating admin password"
+            mysql -u"$DB_USER" -p"$DB_PASS" "$DB_NAME" \
+              -e "UPDATE users SET password='$HASH' WHERE role='admin' LIMIT 1;"
+
+            echo "==> Admin email:"
+            mysql -u"$DB_USER" -p"$DB_PASS" "$DB_NAME" \
+              -e "SELECT email FROM users WHERE role='admin' LIMIT 1;"
+
+            echo "==> Done"
+        env:
+          NEW_PASSWORD: ${{ github.event.inputs.new_password }}
