@@ -51,7 +51,7 @@ jobs:
             fi
             echo "==> Building frontend"
             cd "$APP/frontend"
-            npm ci --prefer-offline
+            npm install --prefer-offline
             npm run build
             echo "==> Reloading services"
             systemctl reload php8.3-fpm 2>/dev/null || systemctl reload php8.2-fpm 2>/dev/null || true
