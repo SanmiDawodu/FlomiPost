@@ -1,0 +1,66 @@
+name: deploy-frontend
+
+# Safe, frontend-only deploy. Syncs the repo's frontend SOURCE to the VPS and
+# rebuilds it in place (vite build writes to /var/www/flowpost/public, the web
+# root). It does NOT git-reset the server repo and never touches the backend or
+# node_modules. Runs when this file is pushed to the working branch, and can be
+# re-run manually from the Actions tab.
+
+on:
+  push:
+    branches: [claude/magical-hawking-sn2uta]
+    paths: ['.github/workflows/deploy-frontend.yml']
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-frontend
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout working branch
+        uses: actions/checkout@v4
+        with:
+          ref: claude/magical-hawking-sn2uta
+
+      - name: Set up deploy SSH key
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/id_deploy
+          chmod 600 ~/.ssh/id_deploy
+          ssh-keyscan -H "$SSH_HOST" >> ~/.ssh/known_hosts 2>/dev/null || true
+        env:
+          SSH_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+
+      - name: Sync frontend source to the VPS
+        run: |
+          set -euo pipefail
+          SSH="ssh -i ~/.ssh/id_deploy -o StrictHostKeyChecking=accept-new"
+          DEST="${SSH_USER}@${SSH_HOST}:/var/www/flowpost/frontend"
+          # Mirror the source tree (safe: repo frontend was snapshotted from this
+          # same VPS, so --delete removes nothing unexpected). node_modules lives
+          # outside src/ and is never touched.
+          rsync -az --delete -e "$SSH" frontend/src/ "$DEST/src/"
+          # Update build config without deleting anything else in the dir.
+          rsync -az -e "$SSH" \
+            frontend/index.html frontend/package.json frontend/package-lock.json frontend/vite.config.js \
+            "$DEST/"
+        env:
+          SSH_USER: ${{ secrets.SSH_USER }}
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+
+      - name: Rebuild frontend on the VPS
+        run: |
+          set -euo pipefail
+          ssh -i ~/.ssh/id_deploy -o StrictHostKeyChecking=accept-new \
+            "${SSH_USER}@${SSH_HOST}" \
+            'set -e; cd /var/www/flowpost/frontend && npm install --prefer-offline --no-audit --no-fund && npm run build && echo "BUILD_OK"'
+        env:
+          SSH_USER: ${{ secrets.SSH_USER }}
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+
+      - name: Summary
+        run: echo "Frontend rebuilt and deployed to /var/www/flowpost/public on the VPS." >> "$GITHUB_STEP_SUMMARY"
