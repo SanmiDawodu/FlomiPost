@@ -1,11 +1,12 @@
-import { NavLink, Outlet, useNavigate } from 'react-router-dom';
+import { useState, useEffect } from 'react';
+import { NavLink, Outlet, useNavigate, useLocation } from 'react-router-dom';
 import {
   Zap, LayoutDashboard, CalendarDays, PenLine, FileText, Clock, BarChart2,
   Inbox, Megaphone, LineChart, Mail, Radio, TrendingUp, Link2, Globe, Image,
   Copy, Layers, Tag, Rss, Repeat, RefreshCw, Sparkles, BookOpen,
   GalleryHorizontal, Mic, MessageSquare, Magnet, Send, Users, CheckSquare,
   UsersRound, UserCog, PenTool, Puzzle, Webhook, CheckCircle, Upload,
-  Activity, Settings, LogOut
+  Activity, Settings, LogOut, Menu, X
 } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 
@@ -209,7 +210,12 @@ const logoutBtnStyle = {
 
 export default function Layout() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { user, logout } = useAuthStore();
+  const [mobileOpen, setMobileOpen] = useState(false);
+
+  // Close the mobile drawer whenever the route changes.
+  useEffect(() => { setMobileOpen(false); }, [location.pathname]);
 
   const handleLogout = () => {
     logout();
@@ -218,10 +224,39 @@ export default function Layout() {
 
   return (
     <div style={{ display: 'flex' }}>
-      <aside style={sidebarStyle}>
+      {/* Mobile top bar — only visible <=1024px (CSS controls display) */}
+      <header className="fp-mobile-topbar">
+        <button
+          className="fp-hamburger"
+          aria-label="Open menu"
+          onClick={() => setMobileOpen(true)}
+        >
+          <Menu size={20} />
+        </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontWeight: 700, fontSize: '1rem' }}>
+          <Zap size={18} color="var(--accent)" fill="var(--accent)" />
+          FlomiPost
+        </div>
+      </header>
+
+      {/* Dim overlay behind the open drawer */}
+      <div
+        className={`fp-sidebar-overlay${mobileOpen ? ' open' : ''}`}
+        onClick={() => setMobileOpen(false)}
+      />
+
+      <aside className={`fp-sidebar${mobileOpen ? ' open' : ''}`} style={sidebarStyle}>
         <div style={logoStyle}>
           <Zap size={20} color="var(--accent)" fill="var(--accent)" />
           FlomiPost
+          <button
+            className="fp-mobile-only-flex"
+            aria-label="Close menu"
+            onClick={() => setMobileOpen(false)}
+            style={{ marginLeft: 'auto', background: 'transparent', border: 'none', color: 'var(--text2)', cursor: 'pointer' }}
+          >
+            <X size={18} />
+          </button>
         </div>
 
         <nav style={{ flex: 1 }}>
@@ -234,6 +269,7 @@ export default function Layout() {
                     <NavLink
                       to={path}
                       end={path === '/'}
+                      onClick={() => setMobileOpen(false)}
                       style={({ isActive }) => isActive ? activeStyle : inactiveStyle}
                     >
                       <Icon size={15} />
@@ -256,7 +292,7 @@ export default function Layout() {
         </div>
       </aside>
 
-      <main style={mainStyle}>
+      <main className="fp-main" style={mainStyle}>
         <Outlet />
       </main>
     </div>

@@ -220,6 +220,7 @@ export default function ComposePage() {
   const [showUtm,     setShowUtm]     = useState(false)
   const [campaignId,  setCampaignId]  = useState('')
   const [expandedGroup, setExpandedGroup] = useState(null)  // key_name of expanded platform group
+  const [mobileView,    setMobileView]    = useState('edit') // 'edit' | 'preview' — mobile-only column toggle
   const topBarRef = useRef(null)
   const expandedPanelRef = useRef(null)
 
@@ -482,10 +483,10 @@ export default function ComposePage() {
   }
 
   return (
-    <div style={{ height:'calc(100vh - 60px)', display:'flex', flexDirection:'column', overflow:'hidden', position:'relative' }}>
+    <div className="fp-compose-root" style={{ height:'calc(100vh - 60px)', display:'flex', flexDirection:'column', overflow:'hidden', position:'relative' }}>
 
       {/* Top bar — site selector + platform icons + action buttons */}
-      <div ref={topBarRef} style={{ padding:'8px 12px', borderBottom:'1px solid var(--border)', display:'flex', alignItems:'center', gap:10, background:'var(--surface)', flexShrink:0 }}>
+      <div ref={topBarRef} className="fp-compose-topbar" style={{ padding:'8px 12px', borderBottom:'1px solid var(--border)', display:'flex', alignItems:'center', gap:10, background:'var(--surface)', flexShrink:0, flexWrap:'wrap' }}>
         {/* Site selector */}
         <select className="fp-select" value={siteId} onChange={e=>setSiteId(e.target.value)}
           style={{ width:150, fontSize:12, padding:'5px 8px', flexShrink:0 }}>
@@ -501,7 +502,7 @@ export default function ComposePage() {
         )}
 
         {/* Platform icons — grouped by platform, scrollable */}
-        <div style={{ flex:1, display:'flex', gap:12, overflowX:'auto', alignItems:'center',
+        <div style={{ flex:1, minWidth:0, display:'flex', gap:12, overflowX:'auto', alignItems:'center',
           scrollbarWidth:'none', msOverflowStyle:'none', padding:'2px 4px' }}>
           {siteConns.length === 0 && (
             <span style={{ fontSize:12, color:'var(--text3)', whiteSpace:'nowrap' }}>
@@ -631,7 +632,10 @@ export default function ComposePage() {
         </div>
 
         {/* Action buttons */}
-        <div style={{ display:'flex', gap:6, flexShrink:0 }}>
+        <div className="fp-compose-actions" style={{ display:'flex', gap:6, flexShrink:0 }}>
+          <button className="fp-btn fp-btn-ghost fp-btn-sm fp-mobile-only" onClick={()=>setMobileView(v=>v==='edit'?'preview':'edit')}>
+            {mobileView==='edit' ? 'Preview' : 'Edit'}
+          </button>
           {isEdit && <button className="fp-btn fp-btn-ghost fp-btn-sm" onClick={()=>publishNowMutation.mutate()}><Send size={13}/></button>}
           <button className="fp-btn fp-btn-ghost fp-btn-sm" onClick={()=>handleSave(true)}><Save size={13}/> Draft</button>
           <button className="fp-btn fp-btn-primary fp-btn-sm" onClick={()=>handleSave(false)} disabled={saveMutation.isPending}>
@@ -684,21 +688,31 @@ export default function ComposePage() {
 
       {/* Body */}
       <style>{`
+        /* Edit/Preview toggle is hidden on desktop; the two-pane grid shows both. */
+        .fp-mobile-only { display: none !important; }
+
+        /* Tablet/mobile: the app sidebar collapses to a drawer (see index.css)
+           and a 52px mobile top bar appears, so the composer fills below it. */
+        @media (max-width: 1024px) {
+          .fp-compose-root { height: calc(100vh - 52px) !important; }
+        }
+
+        /* Single column on small screens — toggle between editor and preview. */
         @media (max-width: 768px) {
+          .fp-compose-topbar .fp-select { flex: 1 1 130px; width: auto !important; }
           .fp-compose-body { grid-template-columns: 1fr !important; }
+          .fp-compose-left { border-right: none !important; }
+          .fp-compose-left.hide-mobile { display: none !important; }
           .fp-compose-preview { display: none !important; }
           .fp-compose-preview.show { display: flex !important; }
-        }
-        @media (max-width: 480px) {
+          .fp-mobile-only { display: inline-flex !important; }
           .fp-quill .ql-toolbar { flex-wrap: wrap; }
-          .fp-avatar-row { gap: 6px !important; }
-          .fp-avatar-row > div { width: 36px !important; height: 36px !important; }
         }
       `}</style>
       <div className="fp-compose-body" style={{ flex:1, display:'grid', gridTemplateColumns:'1fr 340px', overflow:'hidden', minHeight:0, maxHeight:'100%' }}>
 
         {/* Left */}
-        <div style={{ display:'flex', flexDirection:'column', borderRight:'1px solid var(--border)', overflowX:'hidden', overflowY:'auto', minHeight:0 }}>
+        <div className={`fp-compose-left${mobileView==='preview' ? ' hide-mobile' : ''}`} style={{ display:'flex', flexDirection:'column', borderRight:'1px solid var(--border)', overflowX:'hidden', overflowY:'auto', minHeight:0 }}>
 
 
 
@@ -1166,7 +1180,7 @@ export default function ComposePage() {
         </div>
 
         {/* Right — preview */}
-        <div className="fp-compose-preview" style={{ display:'flex', flexDirection:'column', background:'var(--surface)', overflow:'hidden', minHeight:0 }}>
+        <div className={`fp-compose-preview${mobileView==='preview' ? ' show' : ''}`} style={{ display:'flex', flexDirection:'column', background:'var(--surface)', overflow:'hidden', minHeight:0 }}>
           <div style={{ padding:'14px 16px', borderBottom:'1px solid var(--border)', fontSize:13, fontWeight:700, flexShrink:0 }}>Post Preview</div>
           <div style={{ flex:1, overflowY:'auto', padding:'12px 16px' }}>
             {!caption.trim()
