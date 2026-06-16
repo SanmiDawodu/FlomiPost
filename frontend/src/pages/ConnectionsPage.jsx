@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link2, RefreshCw, Trash2, Plus } from 'lucide-react';
 
@@ -25,6 +26,16 @@ export default function ConnectionsPage() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['connections'] }),
   });
 
+  // Surface the result of an OAuth round-trip (e.g. Google Business) and refresh.
+  useEffect(() => {
+    const p = new URLSearchParams(window.location.search);
+    const ok = p.get('oauth_success'), err = p.get('oauth_error');
+    if (!ok && !err) return;
+    if (ok) { alert(`Connected ${ok}${p.get('connected') ? ` (${p.get('connected')} account(s))` : ''}.`); qc.invalidateQueries({ queryKey: ['connections'] }); }
+    else { alert(`Connection failed: ${err}`); }
+    window.history.replaceState({}, '', window.location.pathname);
+  }, [qc]);
+
   const page = { padding: '2rem', maxWidth: '960px' };
   const card = { background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: '1rem 1.25rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.75rem' };
   const btn = (variant) => ({ padding: '0.4rem 0.9rem', borderRadius: 'var(--radius)', border: '1px solid var(--border)', background: variant === 'danger' ? 'var(--danger)' : variant === 'accent' ? 'var(--accent)' : 'var(--surface2)', color: 'var(--text)', cursor: 'pointer', fontSize: '0.82rem', display: 'flex', alignItems: 'center', gap: '0.35rem' });
@@ -34,7 +45,10 @@ export default function ConnectionsPage() {
     <div style={page}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.5rem' }}>
         <h1 style={{ color: 'var(--text)', margin: 0, display: 'flex', alignItems: 'center', gap: '0.5rem' }}><Link2 size={22} /> Connections</h1>
-        <a href="/api/auth/connect" style={{ ...btn('accent'), textDecoration: 'none' }}><Plus size={15} /> Add Connection</a>
+        <div style={{ display: 'flex', gap: '0.5rem' }}>
+          <a href="/api/oauth/google_business/start" style={{ ...btn('default'), textDecoration: 'none' }}><Plus size={15} /> Connect Google Business</a>
+          <a href="/api/auth/connect" style={{ ...btn('accent'), textDecoration: 'none' }}><Plus size={15} /> Add Connection</a>
+        </div>
       </div>
       {isLoading && <p style={{ color: 'var(--text2)' }}>Loading…</p>}
       {error && <p style={{ color: 'var(--danger)' }}>{error.message}</p>}

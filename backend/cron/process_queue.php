@@ -20,6 +20,8 @@ require_once __DIR__.'/../core/Publishers/LinkedInPublisher.php';
 require_once __DIR__.'/../core/Publishers/LinkedInPagePublisher.php';
 require_once __DIR__.'/../core/Publishers/YouTubePublisher.php';
 require_once __DIR__.'/../core/Publishers/TikTokPublisher.php';
+require_once __DIR__.'/../core/GoogleBusinessOAuth.php';
+require_once __DIR__.'/../core/Publishers/GoogleBusinessPublisher.php';
 require_once __DIR__.'/../core/NotificationService.php';
 require_once __DIR__.'/../core/PublisherFactory.php';
 require_once __DIR__.'/../core/QueueWorker.php';

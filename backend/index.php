@@ -30,12 +30,14 @@ require_once __DIR__.'/core/Publishers/TwitterPublisher.php';
 require_once __DIR__.'/core/Publishers/LinkedInPublisher.php';
 require_once __DIR__.'/core/Publishers/YouTubePublisher.php';
 require_once __DIR__.'/core/Publishers/TikTokPublisher.php';
+require_once __DIR__.'/core/Publishers/GoogleBusinessPublisher.php';
 require_once __DIR__.'/core/LinkedInOAuth.php';
 require_once __DIR__.'/core/TikTokOAuth.php';
 require_once __DIR__.'/core/YouTubeOAuth.php';
 require_once __DIR__.'/core/TwitterOAuth.php';
 require_once __DIR__.'/core/LinkedInOAuth.php';
 require_once __DIR__.'/core/GAOAuth.php';
+require_once __DIR__.'/core/GoogleBusinessOAuth.php';
 require_once __DIR__.'/core/CanvaOAuth.php';
 require_once __DIR__.'/core/NotificationService.php';
 require_once __DIR__.'/core/EmailService.php';
@@ -491,6 +493,60 @@ $router->get('/oauth/youtube/callback', function() {
             if ($ex) DB::update('platform_connections',$f,'id=?',[$ex['id']]); else DB::insert('platform_connections',$f);
         }
         header('Location: /?oauth_success=youtube&connected=1'); exit;
+    } catch(Exception $e) { header('Location: /?oauth_error='.urlencode($e->getMessage())); exit; }
+});
+
+// GOOGLE BUSINESS PROFILE OAUTH (Google My Business)
+$router->get('/oauth/google_business/start', function() {
+    $siteId = $_GET['site_id'] ?? '1';
+    $state = base64_encode(json_encode(['site_id'=>$siteId,'csrf'=>bin2hex(random_bytes(8))]));
+    header('Location: ' . GoogleBusinessOAuth::authUrl($state)); exit;
+});
+$router->get('/oauth/google_business/callback', function() {
+    $code = $_GET['code'] ?? ''; $state = $_GET['state'] ?? ''; $err = $_GET['error'] ?? '';
+    if ($err || !$code) { header('Location: /?oauth_error='.urlencode($err?:'no_code')); exit; }
+    $sd = json_decode(base64_decode($state), true) ?? [];
+    $siteId = (int)($sd['site_id'] ?? 1);
+    try {
+        $tok     = GoogleBusinessOAuth::exchangeCode($code);
+        $access  = $tok['access_token'];
+        $refresh = $tok['refresh_token'] ?? null;
+        $platId  = DB::one('SELECT id FROM platforms WHERE key_name=?',['google_business'])['id'] ?? null;
+        if (!$platId) throw new RuntimeException('google_business platform not found — run the migration first.');
+
+        // A Google account can manage several Business Profile accounts, each with
+        // several locations. Create one connection per location so each can be
+        // targeted independently when composing a post.
+        $n = 0;
+        foreach (GoogleBusinessOAuth::listAccounts($access) as $acct) {
+            $acctName = $acct['name'] ?? null; // "accounts/123"
+            if (!$acctName) continue;
+            foreach (GoogleBusinessOAuth::listLocations($access, $acctName) as $loc) {
+                $locName = $loc['name'] ?? ''; // "locations/456"
+                if (!$locName) continue;
+                $parent = str_starts_with($locName,'accounts/') ? $locName : ($acctName.'/'.$locName);
+                $title  = $loc['title'] ?? ($acct['accountName'] ?? 'Business Location');
+                $f = [
+                    'site_id'=>$siteId, 'platform_id'=>$platId,
+                    'account_name'=>$title, 'account_id'=>$parent,
+                    'access_token'=>Crypto::enc($access),
+                    'refresh_token'=>$refresh?Crypto::enc($refresh):null,
+                    'connected'=>1,
+                    'extra'=>json_encode(['account'=>$acctName,'location'=>$locName,'account_label'=>$acct['accountName']??null]),
+                ];
+                $ex = DB::one('SELECT id FROM platform_connections WHERE site_id=? AND platform_id=? AND account_id=?',[$siteId,$platId,$parent]);
+                if ($ex) {
+                    // Keep the existing refresh_token if Google didn't return a new one.
+                    if (!$refresh) unset($f['refresh_token']);
+                    DB::update('platform_connections',$f,'id=?',[$ex['id']]);
+                } else {
+                    DB::insert('platform_connections',$f);
+                }
+                $n++;
+            }
+        }
+        if ($n === 0) { header('Location: /?oauth_error='.urlencode('No Business Profile locations found for this Google account (or API access is not yet approved).')); exit; }
+        header('Location: /?oauth_success=google_business&connected='.$n); exit;
     } catch(Exception $e) { header('Location: /?oauth_error='.urlencode($e->getMessage())); exit; }
 });
 
