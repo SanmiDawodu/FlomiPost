@@ -1,4 +1,5 @@
 import { Suspense, lazy, useEffect } from 'react'
+import EmailInboxPage from './pages/EmailInboxPage'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { Toaster } from 'react-hot-toast'
@@ -46,6 +47,8 @@ const CarouselPage = lazy(() => import('./pages/CarouselPage'))
 const LeadMagnetOptinPage = lazy(() => import('./pages/LeadMagnetOptinPage'))
 const TodoPage = lazy(() => import('./pages/TodoPage'))
 const ChannelHealthPage = lazy(() => import('./pages/ChannelHealthPage'))
+const HelpPage = lazy(() => import('./pages/HelpPage'))
+const ChatsPage = lazy(() => import('./pages/ChatsPage'))
 
 const qc = new QueryClient({defaultOptions:{queries:{retry:1,staleTime:30000}}})
 
@@ -70,12 +73,16 @@ export default function App() {
             <Route path="/login" element={<LoginPage/>}/>
             <Route path="/" element={<PrivateRoute><Layout/></PrivateRoute>}>
               <Route index element={<DashboardPage/>}/>
+              <Route path="help" element={<HelpPage/>}/>
               <Route path="calendar" element={<CalendarPage/>}/>
               <Route path="compose" element={<ComposePage/>}/>
               <Route path="compose/:id" element={<ComposePage/>}/>
               <Route path="queue" element={<QueuePage/>}/>
               <Route path="analytics" element={<AnalyticsPage/>}/>
-              <Route path="inbox" element={<InboxPage/>}/>
+              <Route path="inbox" element={<ChatsPage/>}/>
+              <Route path="inbox-feed" element={<InboxPage/>}/>
+              <Route path="chats" element={<ChatsPage/>}/>
+              <Route path="email-inbox" element={<EmailInboxPage/>}/>
               <Route path="campaigns" element={<CampaignsPage/>}/>
               <Route path="reports" element={<ReportsPage/>}/>
               <Route path="whatsapp-contacts" element={<WhatsAppContactsPage/>}/>

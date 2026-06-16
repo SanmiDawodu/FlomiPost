@@ -1,159 +1,87 @@
-import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { Zap, LogIn } from 'lucide-react';
-import { useAuthStore } from '../store/authStore';
-
-const pageStyle = {
-  minHeight: '100vh',
-  background: 'var(--bg)',
-  display: 'flex',
-  alignItems: 'center',
-  justifyContent: 'center',
-  padding: '1rem',
-};
-
-const cardStyle = {
-  background: 'var(--surface)',
-  border: '1px solid var(--border)',
-  borderRadius: 'var(--radius)',
-  padding: '2rem',
-  width: '100%',
-  maxWidth: '400px',
-};
-
-const logoStyle = {
-  display: 'flex',
-  alignItems: 'center',
-  justifyContent: 'center',
-  gap: '0.5rem',
-  fontWeight: 700,
-  fontSize: '1.4rem',
-  color: 'var(--text)',
-  marginBottom: '1.75rem',
-  letterSpacing: '-0.01em',
-};
-
-const labelStyle = {
-  display: 'block',
-  fontSize: '0.83rem',
-  fontWeight: 500,
-  color: 'var(--text2)',
-  marginBottom: '0.35rem',
-};
-
-const inputStyle = {
-  width: '100%',
-  padding: '0.55rem 0.75rem',
-  background: 'var(--bg)',
-  border: '1px solid var(--border)',
-  borderRadius: 'var(--radius)',
-  color: 'var(--text)',
-  fontSize: '0.9rem',
-  outline: 'none',
-  boxSizing: 'border-box',
-};
-
-const fieldStyle = {
-  marginBottom: '1rem',
-};
-
-const submitBtnStyle = (loading) => ({
-  display: 'flex',
-  alignItems: 'center',
-  justifyContent: 'center',
-  gap: '0.5rem',
-  width: '100%',
-  padding: '0.65rem',
-  background: 'var(--accent)',
-  color: '#fff',
-  border: 'none',
-  borderRadius: 'var(--radius)',
-  fontSize: '0.92rem',
-  fontWeight: 600,
-  cursor: loading ? 'not-allowed' : 'pointer',
-  opacity: loading ? 0.7 : 1,
-  marginTop: '0.5rem',
-  transition: 'opacity 0.15s',
-});
-
-const errorStyle = {
-  marginTop: '1rem',
-  padding: '0.6rem 0.75rem',
-  background: 'color-mix(in srgb, var(--danger) 12%, transparent)',
-  border: '1px solid var(--danger)',
-  borderRadius: 'var(--radius)',
-  color: 'var(--danger)',
-  fontSize: '0.85rem',
-};
+import { useState } from 'react'
+import { useNavigate, Link } from 'react-router-dom'
+import { useAuthStore } from '../store/authStore'
+import { Zap } from 'lucide-react'
+import toast from 'react-hot-toast'
 
 export default function LoginPage() {
-  const navigate = useNavigate();
-  const login = useAuthStore((s) => s.login);
+  const [email, setEmail]       = useState('')
+  const [password, setPassword] = useState('')
+  const [loading, setLoading]   = useState(false)
+  const [error, setError]       = useState('')
+  const { login }               = useAuthStore()
+  const navigate                = useNavigate()
 
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
-
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    setError('');
-    setLoading(true);
+  const submit = async (e) => {
+    e.preventDefault()
+    setLoading(true); setError('')
     try {
-      await login(email, password);
-      navigate('/');
+      await login(email, password)
+      toast.success('Welcome back!')
+      navigate('/')
     } catch (err) {
-      setError(err?.message || 'Login failed. Please check your credentials.');
+      setError(err.message || 'Invalid credentials')
     } finally {
-      setLoading(false);
+      setLoading(false)
     }
-  };
+  }
 
   return (
-    <div style={pageStyle}>
-      <div style={cardStyle}>
-        <div style={logoStyle}>
-          <Zap size={24} color="var(--accent)" fill="var(--accent)" />
-          FlomiPost
+    <div className="fp-login-bg">
+      <div className="fp-login-card">
+        <div className="fp-login-logo">
+          <div className="fp-login-logo-mark" style={{borderRadius:16,width:56,height:56,overflow:"hidden",boxShadow:"0 8px 24px rgba(91,60,245,.4)"}}><img src="https://scheduler.flomicso.dev/storage/media/fp_6a1f5d3184c104.04916493.png" style={{width:56,height:56,objectFit:"cover"}}/></div>
+          <div>
+            <div className="fp-login-title">FlomiPost</div>
+            <div className="fp-login-sub">Social Media Scheduler</div>
+          </div>
         </div>
 
-        <form onSubmit={handleSubmit} noValidate>
-          <div style={fieldStyle}>
-            <label htmlFor="email" style={labelStyle}>Email</label>
+        {error && <div className="fp-login-error">{error}</div>}
+
+        <form onSubmit={submit}>
+          <div className="fp-field">
+            <label className="fp-label">Email</label>
             <input
-              id="email"
+              className="fp-input"
               type="email"
-              autoComplete="email"
-              required
-              style={inputStyle}
+              placeholder="your@email.com"
               value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="you@example.com"
-            />
-          </div>
-
-          <div style={fieldStyle}>
-            <label htmlFor="password" style={labelStyle}>Password</label>
-            <input
-              id="password"
-              type="password"
-              autoComplete="current-password"
+              onChange={e => setEmail(e.target.value)}
               required
-              style={inputStyle}
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="••••••••"
+              autoFocus
             />
           </div>
-
-          <button type="submit" style={submitBtnStyle(loading)} disabled={loading}>
-            <LogIn size={16} />
-            {loading ? 'Signing in…' : 'Sign in'}
+          <div className="fp-field">
+            <label className="fp-label">Password</label>
+            <input
+              className="fp-input"
+              type="password"
+              placeholder="••••••••"
+              value={password}
+              onChange={e => setPassword(e.target.value)}
+              required
+            />
+          </div>
+          <div style={{ textAlign: 'right', marginTop: -4, marginBottom: 12 }}>
+            <Link to="/forgot-password" style={{ fontSize: 13, color: 'var(--gold)', textDecoration: 'none', opacity: 0.85 }}>
+              Forgot password?
+            </Link>
+          </div>
+          <button
+            type="submit"
+            className="fp-btn fp-btn-primary"
+            style={{ width: '100%', justifyContent: 'center', marginTop: 8 }}
+            disabled={loading}
+          >
+            {loading ? 'Signing in…' : 'Sign In'}
           </button>
         </form>
 
-        {error && <div style={errorStyle}>{error}</div>}
+        <p style={{ fontSize: 11, color: 'var(--text3)', textAlign: 'center', marginTop: 20 }}>
+          FlomiPost · scheduler.flomicso.dev
+        </p>
       </div>
     </div>
-  );
+  )
 }

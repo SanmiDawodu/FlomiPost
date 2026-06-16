@@ -1,65 +1,125 @@
-import { useState } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { UserCog, Plus, Trash2 } from 'lucide-react';
-
-const token = () => localStorage.getItem('fp_token');
-const h = () => ({ Authorization: `Bearer ${token()}`, 'Content-Type': 'application/json' });
-const ROLES = ['admin', 'editor', 'viewer'];
+// UsersPage.jsx
+import { useState } from 'react'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { usersApi } from '../utils/api'
+import toast from 'react-hot-toast'
+import { Users, Plus, X } from 'lucide-react'
 
 export default function UsersPage() {
-  const qc = useQueryClient();
-  const [form, setForm] = useState({ email: '', role: 'editor' });
+  const qc = useQueryClient()
+  const [showAdd, setShowAdd] = useState(false)
+  const [form, setForm] = useState({ name:'', email:'', password:'', role:'editor', timezone:'America/Chicago' })
 
-  const { data, isLoading } = useQuery({
-    queryKey: ['users'],
-    queryFn: async () => { const r = await fetch('/api/users', { headers: h() }); const j = await r.json(); return j.data || j; },
-  });
+  const { data, isLoading } = useQuery({ queryKey: ['users'], queryFn: usersApi.list })
+  const users = data?.data ?? []
 
-  const invite = useMutation({
-    mutationFn: async (p) => { const r = await fetch('/api/users/invite', { method: 'POST', headers: h(), body: JSON.stringify(p) }); if (!r.ok) throw new Error('Invite failed'); },
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['users'] }); setForm({ email: '', role: 'editor' }); },
-  });
+  const addMutation = useMutation({
+    mutationFn: usersApi.create,
+    onSuccess: () => {
+      toast.success('User created!')
+      qc.invalidateQueries({ queryKey: ['users'] })
+      setShowAdd(false)
+      setForm({ name:'', email:'', password:'', role:'editor', timezone:'America/Chicago' })
+    },
+    onError: (e) => toast.error(e.message),
+  })
 
-  const del = useMutation({
-    mutationFn: async (id) => { await fetch(`/api/users/${id}`, { method: 'DELETE', headers: h() }); },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['users'] }),
-  });
-
-  const page = { padding: '2rem', maxWidth: '900px' };
-  const input = { background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', color: 'var(--text)', padding: '0.6rem 0.75rem', fontSize: '0.9rem' };
-  const table = { width: '100%', borderCollapse: 'collapse', marginTop: '1.5rem' };
-  const th = { textAlign: 'left', padding: '0.75rem 1rem', background: 'var(--surface)', color: 'var(--text2)', fontSize: '0.8rem', fontWeight: 600, borderBottom: '1px solid var(--border)' };
-  const td = { padding: '0.75rem 1rem', borderBottom: '1px solid var(--border)', color: 'var(--text)', fontSize: '0.85rem' };
-  const btn = (v) => ({ padding: '0.4rem 0.9rem', borderRadius: 'var(--radius)', border: '1px solid var(--border)', background: v === 'accent' ? 'var(--accent)' : 'transparent', color: v === 'danger' ? 'var(--danger)' : 'var(--text)', cursor: 'pointer', fontSize: '0.82rem', display: 'inline-flex', alignItems: 'center', gap: '0.35rem' });
-  const roleBadge = { padding: '0.18rem 0.55rem', borderRadius: '99px', fontSize: '0.72rem', background: 'var(--surface2)', color: 'var(--text2)' };
+  const toggleMutation = useMutation({
+    mutationFn: ({ id, active }) => usersApi.update(id, { active: active ? 0 : 1 }),
+    onSuccess: () => { toast.success('Updated'); qc.invalidateQueries({ queryKey: ['users'] }) },
+    onError: (e) => toast.error(e.message),
+  })
 
   return (
-    <div style={page}>
-      <h1 style={{ color: 'var(--text)', margin: '0 0 1.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}><UserCog size={22} /> Users</h1>
-      <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-        <input style={{ ...input, flex: 1, minWidth: '200px' }} type="email" placeholder="Email address" value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} />
-        <select style={{ ...input }} value={form.role} onChange={e => setForm(f => ({ ...f, role: e.target.value }))}>
-          {ROLES.map(r => <option key={r} value={r}>{r}</option>)}
-        </select>
-        <button style={btn('accent')} onClick={() => invite.mutate(form)} disabled={invite.isPending || !form.email}><Plus size={14} />{invite.isPending ? 'Inviting…' : 'Invite User'}</button>
+    <div>
+      <div className="fp-page-header">
+        <div>
+          <div className="fp-page-title">Team</div>
+          <div className="fp-page-sub">{users.length} users</div>
+        </div>
+        <button className="fp-btn fp-btn-primary fp-btn-sm" onClick={() => setShowAdd(true)}>
+          <Plus size={13}/> Add User
+        </button>
       </div>
-      {invite.isError && <p style={{ color: 'var(--danger)', marginTop: '0.5rem' }}>{invite.error.message}</p>}
-      {invite.isSuccess && <p style={{ color: 'var(--success)', marginTop: '0.5rem' }}>Invitation sent!</p>}
-      {isLoading && <p style={{ color: 'var(--text2)', marginTop: '1rem' }}>Loading…</p>}
-      <table style={table}>
-        <thead><tr><th style={th}>Name</th><th style={th}>Email</th><th style={th}>Role</th><th style={th}>Joined</th><th style={th}></th></tr></thead>
-        <tbody>
-          {data?.map(u => (
-            <tr key={u.id}>
-              <td style={{ ...td, fontWeight: 600 }}>{u.name || '—'}</td>
-              <td style={td}>{u.email}</td>
-              <td style={td}><span style={roleBadge}>{u.role}</span></td>
-              <td style={td}>{u.created_at ? new Date(u.created_at).toLocaleDateString() : '—'}</td>
-              <td style={td}><button style={btn('danger')} onClick={() => del.mutate(u.id)}><Trash2 size={13} /></button></td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+
+      {showAdd && (
+        <div className="fp-modal-bg" onClick={e => e.target === e.currentTarget && setShowAdd(false)}>
+          <div className="fp-modal">
+            <div className="fp-modal-header">
+              <div className="fp-modal-title">Add Team Member</div>
+              <button className="fp-modal-close" onClick={() => setShowAdd(false)}><X size={18}/></button>
+            </div>
+            {[
+              { label:'Name', key:'name', type:'text', placeholder:'Full name' },
+              { label:'Email', key:'email', type:'email', placeholder:'email@domain.com' },
+              { label:'Password', key:'password', type:'password', placeholder:'Temp password' },
+            ].map(f => (
+              <div className="fp-field" key={f.key}>
+                <label className="fp-label">{f.label}</label>
+                <input className="fp-input" type={f.type} placeholder={f.placeholder}
+                  value={form[f.key]} onChange={e => setForm(p => ({...p,[f.key]:e.target.value}))}/>
+              </div>
+            ))}
+            <div className="fp-field">
+              <label className="fp-label">Role</label>
+              <select className="fp-select" value={form.role} onChange={e => setForm(p=>({...p,role:e.target.value}))}>
+                <option value="admin">Admin</option>
+                <option value="editor">Editor</option>
+                <option value="viewer">Viewer</option>
+              </select>
+            </div>
+            <div style={{ display:'flex', gap:8, marginTop:8 }}>
+              <button className="fp-btn fp-btn-ghost" onClick={() => setShowAdd(false)}>Cancel</button>
+              <button className="fp-btn fp-btn-primary" onClick={() => addMutation.mutate(form)} disabled={addMutation.isPending}>
+                Create User
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div className="fp-card">
+        <div className="fp-card-title"><Users size={15}/> Team Members</div>
+        {isLoading ? <div className="fp-loader"><div className="fp-spinner"/></div> : (
+          <div className="fp-table-wrap">
+            <table className="fp-table">
+              <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Status</th><th></th></tr></thead>
+              <tbody>
+                {users.map(u => (
+                  <tr key={u.id}>
+                    <td>
+                      <div style={{display:'flex',alignItems:'center',gap:8}}>
+                        <div style={{width:28,height:28,borderRadius:'50%',background:'var(--gold-dim)',border:'1px solid var(--border)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:11,fontWeight:700,color:'var(--gold)',fontFamily:'Syne,sans-serif'}}>
+                          {u.name[0].toUpperCase()}
+                        </div>
+                        {u.name}
+                      </div>
+                    </td>
+                    <td style={{fontSize:12,color:'var(--text3)'}}>{u.email}</td>
+                    <td>
+                      <span style={{
+                        fontSize:10,padding:'2px 8px',borderRadius:20,fontWeight:600,
+                        background: u.role==='admin'?'rgba(201,168,76,.12)':u.role==='editor'?'rgba(29,158,117,.12)':'rgba(255,255,255,.06)',
+                        color: u.role==='admin'?'var(--gold)':u.role==='editor'?'var(--green)':'var(--text3)'
+                      }}>{u.role}</span>
+                    </td>
+                    <td>
+                      <span style={{fontSize:10,padding:'2px 8px',borderRadius:20,background:u.active?'rgba(29,158,117,.12)':'rgba(255,255,255,.05)',color:u.active?'var(--green)':'var(--text3)'}}>
+                        {u.active ? 'Active' : 'Inactive'}
+                      </span>
+                    </td>
+                    <td>
+                      <button className="fp-btn fp-btn-ghost fp-btn-sm" onClick={() => toggleMutation.mutate({ id: u.id, active: u.active })}>
+                        {u.active ? 'Deactivate' : 'Activate'}
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
     </div>
-  );
+  )
 }

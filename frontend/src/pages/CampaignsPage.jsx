@@ -1,109 +1,160 @@
-import { useState } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Megaphone, Plus, Trash2 } from 'lucide-react';
+import { useState } from 'react'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { api } from '../utils/api'
+import { Link } from 'react-router-dom'
+import toast from 'react-hot-toast'
+import { Plus, X, Trash2, BarChart3, Calendar, Edit2 } from 'lucide-react'
 
-const token = () => localStorage.getItem('fp_token');
-const headers = () => ({ Authorization: `Bearer ${token()}`, 'Content-Type': 'application/json' });
-
-const fetchCampaigns = async () => {
-  const res = await fetch('/api/campaigns', { headers: headers() });
-  if (!res.ok) throw new Error('Failed');
-  const json = await res.json();
-  return json.data || json;
-};
-
-const card = { background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: '1.25rem' };
-const btn = (variant = 'primary') => ({
-  display: 'inline-flex', alignItems: 'center', gap: '0.4rem',
-  background: variant === 'primary' ? 'var(--accent)' : variant === 'danger' ? 'var(--danger)' : 'var(--surface2)',
-  color: variant === 'ghost' ? 'var(--text2)' : '#fff',
-  border: '1px solid ' + (variant === 'ghost' ? 'var(--border)' : 'transparent'),
-  borderRadius: 'var(--radius)', padding: '0.4rem 0.9rem', fontWeight: 600, fontSize: '0.85rem', cursor: 'pointer',
-});
-
-const statusBadge = (s) => {
-  const colors = { active: 'var(--success)', draft: 'var(--text2)', paused: '#f59e0b', completed: '#3b82f6' };
-  const c = colors[s] || 'var(--text2)';
-  return { display: 'inline-block', background: c + '22', color: c, border: `1px solid ${c}44`, borderRadius: 999, padding: '0.15rem 0.6rem', fontSize: '0.75rem', fontWeight: 600, textTransform: 'capitalize' };
-};
+const STATUS_COLORS = { '#6366f1':'Violet','#22c55e':'Green','#f59e0b':'Amber','#ef4444':'Red','#3b82f6':'Blue','#ec4899':'Pink','#14b8a6':'Teal','#f97316':'Orange' }
 
 export default function CampaignsPage() {
-  const qc = useQueryClient();
-  const { data = [], isLoading, error } = useQuery({ queryKey: ['campaigns'], queryFn: fetchCampaigns });
-  const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState({ name: '', startDate: '', endDate: '' });
+  const qc = useQueryClient()
+  const [showForm, setShowForm] = useState(false)
+  const [editing, setEditing]   = useState(null)
+  const [form, setForm] = useState({ name:'', description:'', color:'#6366f1', start_date:'', end_date:'' })
 
-  const addMutation = useMutation({
-    mutationFn: async (data) => {
-      const res = await fetch('/api/campaigns', { method: 'POST', headers: headers(), body: JSON.stringify(data) });
-      if (!res.ok) throw new Error('Failed to create');
-      return res.json();
-    },
-    onSuccess: () => { qc.invalidateQueries(['campaigns']); setShowForm(false); setForm({ name: '', startDate: '', endDate: '' }); },
-  });
+  const { data, isLoading } = useQuery({ queryKey:['campaigns'], queryFn:()=>api.get('/campaigns') })
+  const campaigns = data?.data ?? []
 
+  const saveMutation = useMutation({
+    mutationFn: d => editing ? api.put(`/campaigns/${editing.id}`, d) : api.post('/campaigns', d),
+    onSuccess: () => { toast.success(editing?'Updated!':'Campaign created!'); qc.invalidateQueries({queryKey:['campaigns']}); closeForm() },
+    onError: e => toast.error(e.message),
+  })
   const deleteMutation = useMutation({
-    mutationFn: async (id) => {
-      const res = await fetch(`/api/campaigns/${id}`, { method: 'DELETE', headers: headers() });
-      if (!res.ok) throw new Error('Failed to delete');
-    },
-    onSuccess: () => qc.invalidateQueries(['campaigns']),
-  });
+    mutationFn: id => api.delete(`/campaigns/${id}`),
+    onSuccess: () => { toast.success('Deleted'); qc.invalidateQueries({queryKey:['campaigns']}) },
+    onError: e => toast.error(e.message),
+  })
 
-  const input = { width: '100%', padding: '0.5rem 0.75rem', background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', color: 'var(--text)', fontSize: '0.875rem', boxSizing: 'border-box' };
+  function openNew() { setForm({name:'',description:'',color:'#6366f1',start_date:'',end_date:''}); setEditing(null); setShowForm(true) }
+  function openEdit(c) { setForm({name:c.name,description:c.description||'',color:c.color||'#6366f1',start_date:c.start_date||'',end_date:c.end_date||''}); setEditing(c); setShowForm(true) }
+  function closeForm() { setShowForm(false); setEditing(null) }
 
   return (
-    <div style={{ padding: '1.5rem' }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.5rem' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
-          <Megaphone size={20} color="var(--accent)" />
-          <h1 style={{ margin: 0, color: 'var(--text)', fontWeight: 700, fontSize: '1.4rem' }}>Campaigns</h1>
+    <div>
+      <div className="fp-page-header">
+        <div>
+          <div className="fp-page-title">Campaigns</div>
+          <div className="fp-page-sub">Group posts into campaigns to track performance by initiative</div>
         </div>
-        <button style={btn()} onClick={() => setShowForm(s => !s)}><Plus size={15} /> New Campaign</button>
+        <button className="fp-btn fp-btn-primary fp-btn-sm" onClick={openNew}><Plus size={13}/> New Campaign</button>
       </div>
 
-      {showForm && (
-        <div style={{ ...card, marginBottom: '1.5rem' }}>
-          <h3 style={{ color: 'var(--text)', margin: '0 0 1rem' }}>New Campaign</h3>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.75rem', marginBottom: '1rem' }}>
-            <input style={input} placeholder="Campaign name" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} />
-            <input style={input} type="date" value={form.startDate} onChange={e => setForm(f => ({ ...f, startDate: e.target.value }))} />
-            <input style={input} type="date" value={form.endDate} onChange={e => setForm(f => ({ ...f, endDate: e.target.value }))} />
+      {isLoading ? <div className="fp-loader"><div className="fp-spinner"/></div> : (
+        campaigns.length === 0 ? (
+          <div className="fp-card" style={{ textAlign:'center', padding:'56px 24px' }}>
+            <div style={{ fontSize:40, marginBottom:12 }}>📣</div>
+            <div style={{ fontSize:17, fontWeight:700, marginBottom:8 }}>No campaigns yet</div>
+            <div style={{ fontSize:14, color:'var(--text3)', marginBottom:20 }}>Group your posts by campaign to track reach, engagement, and performance together.</div>
+            <button className="fp-btn fp-btn-primary" onClick={openNew}><Plus size={14}/> Create your first campaign</button>
           </div>
-          <div style={{ display: 'flex', gap: '0.5rem' }}>
-            <button style={btn()} onClick={() => addMutation.mutate(form)} disabled={!form.name || addMutation.isPending}>{addMutation.isPending ? 'Saving…' : 'Save'}</button>
-            <button style={btn('ghost')} onClick={() => setShowForm(false)}>Cancel</button>
+        ) : (
+          <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill,minmax(300px,1fr))', gap:16 }}>
+            {campaigns.map(c => {
+              const start = c.start_date ? new Date(c.start_date).toLocaleDateString('en',{month:'short',day:'numeric'}) : null
+              const end   = c.end_date   ? new Date(c.end_date).toLocaleDateString('en',{month:'short',day:'numeric',year:'numeric'}) : null
+              const now   = new Date()
+              const isActive = (!c.start_date || new Date(c.start_date)<=now) && (!c.end_date || new Date(c.end_date)>=now)
+              const isEnded  = c.end_date && new Date(c.end_date)<now
+              return (
+                <div key={c.id} style={{ background:'var(--bg2)', border:'1.5px solid var(--border)', borderRadius:14, overflow:'hidden', transition:'box-shadow .15s' }}>
+                  {/* Colour bar */}
+                  <div style={{ height:5, background:c.color||'#6366f1' }}/>
+                  <div style={{ padding:20 }}>
+                    <div style={{ display:'flex', alignItems:'flex-start', justifyContent:'space-between', marginBottom:8 }}>
+                      <div style={{ flex:1, minWidth:0 }}>
+                        <div style={{ fontWeight:800, fontSize:16, color:'var(--text)', marginBottom:4 }}>{c.name}</div>
+                        {c.description && <div style={{ fontSize:13, color:'var(--text3)', lineHeight:1.5 }}>{c.description}</div>}
+                      </div>
+                      <div style={{ display:'flex', gap:4, flexShrink:0, marginLeft:8 }}>
+                        <button onClick={()=>openEdit(c)} style={{ background:'none', border:'none', cursor:'pointer', color:'var(--text3)', padding:4 }}><Edit2 size={14}/></button>
+                        <button onClick={()=>{ if(confirm('Delete campaign?')) deleteMutation.mutate(c.id) }} style={{ background:'none', border:'none', cursor:'pointer', color:'var(--coral)', padding:4 }}><Trash2 size={14}/></button>
+                      </div>
+                    </div>
+
+                    {/* Stats */}
+                    <div style={{ display:'flex', gap:16, marginTop:12, paddingTop:12, borderTop:'1px solid var(--border)' }}>
+                      <div style={{ textAlign:'center' }}>
+                        <div style={{ fontSize:22, fontWeight:800, color:c.color||'#6366f1' }}>{c.post_count||0}</div>
+                        <div style={{ fontSize:10, fontWeight:700, color:'var(--text3)', textTransform:'uppercase', letterSpacing:'.05em' }}>Posts</div>
+                      </div>
+                      <div style={{ flex:1 }}/>
+                      <div style={{ textAlign:'right' }}>
+                        {(start||end) && (
+                          <div style={{ fontSize:12, color:'var(--text3)', display:'flex', alignItems:'center', gap:5 }}>
+                            <Calendar size={12}/>
+                            {start && end ? `${start} – ${end}` : start ? `From ${start}` : `Until ${end}`}
+                          </div>
+                        )}
+                        <div style={{ marginTop:4 }}>
+                          <span style={{ fontSize:11, fontWeight:700, padding:'2px 8px', borderRadius:20,
+                            background: isEnded ? 'var(--bg3)' : isActive ? '#dcfce7' : '#fef3c7',
+                            color: isEnded ? 'var(--text3)' : isActive ? '#16a34a' : '#b45309' }}>
+                            {isEnded ? 'Ended' : isActive ? 'Active' : 'Upcoming'}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* View posts link */}
+                    <Link to={`/posts?campaign_id=${c.id}`}
+                      style={{ marginTop:12, display:'flex', alignItems:'center', gap:5, fontSize:12, fontWeight:600, color:'var(--violet)', textDecoration:'none' }}>
+                      <BarChart3 size={12}/> View posts in this campaign
+                    </Link>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        )
+      )}
+
+      {/* Form modal */}
+      {showForm && (
+        <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,.5)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:500, padding:20 }}
+          onClick={e=>e.target===e.currentTarget&&closeForm()}>
+          <div className="fp-modal" style={{ maxWidth:480 }}>
+            <div className="fp-modal-header">
+              <div className="fp-modal-title">{editing?'Edit Campaign':'New Campaign'}</div>
+              <button className="fp-modal-close" onClick={closeForm}><X size={18}/></button>
+            </div>
+            <div className="fp-field">
+              <label className="fp-label">Campaign Name *</label>
+              <input className="fp-input" placeholder="e.g. Summer Launch, Ramadan Series, Q3 Outreach" value={form.name} onChange={e=>setForm(f=>({...f,name:e.target.value}))}/>
+            </div>
+            <div className="fp-field">
+              <label className="fp-label">Description</label>
+              <textarea className="fp-textarea" placeholder="What's this campaign about?" value={form.description} onChange={e=>setForm(f=>({...f,description:e.target.value}))} style={{ height:80, resize:'vertical' }}/>
+            </div>
+            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12 }}>
+              <div className="fp-field">
+                <label className="fp-label">Start Date</label>
+                <input type="date" className="fp-input" value={form.start_date} onChange={e=>setForm(f=>({...f,start_date:e.target.value}))}/>
+              </div>
+              <div className="fp-field">
+                <label className="fp-label">End Date</label>
+                <input type="date" className="fp-input" value={form.end_date} onChange={e=>setForm(f=>({...f,end_date:e.target.value}))}/>
+              </div>
+            </div>
+            <div className="fp-field">
+              <label className="fp-label">Colour</label>
+              <div style={{ display:'flex', gap:8, flexWrap:'wrap', marginTop:4 }}>
+                {Object.keys(STATUS_COLORS).map(col=>(
+                  <button key={col} onClick={()=>setForm(f=>({...f,color:col}))}
+                    style={{ width:28, height:28, borderRadius:'50%', background:col, border: form.color===col?'3px solid var(--text)':'3px solid transparent', cursor:'pointer', transition:'border .15s' }}/>
+                ))}
+              </div>
+            </div>
+            <div style={{ display:'flex', gap:8, marginTop:16 }}>
+              <button className="fp-btn fp-btn-ghost" onClick={closeForm}>Cancel</button>
+              <button className="fp-btn fp-btn-primary" onClick={()=>saveMutation.mutate(form)} disabled={!form.name.trim()||saveMutation.isPending}>
+                {saveMutation.isPending?'Saving…':editing?'Save Changes':'Create Campaign'}
+              </button>
+            </div>
           </div>
         </div>
       )}
-
-      {isLoading && <div style={{ color: 'var(--text2)' }}>Loading…</div>}
-      {error && <div style={{ color: 'var(--danger)' }}>{error.message}</div>}
-
-      <div style={card}>
-        {data.length === 0 && !isLoading ? <div style={{ color: 'var(--text2)' }}>No campaigns yet.</div> : (
-          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-            <thead><tr style={{ borderBottom: '1px solid var(--border)' }}>
-              {['Name', 'Status', 'Start Date', 'End Date', ''].map(h => (
-                <th key={h} style={{ textAlign: 'left', padding: '0.5rem 0.75rem', color: 'var(--text2)', fontSize: '0.78rem', fontWeight: 600, textTransform: 'uppercase' }}>{h}</th>
-              ))}
-            </tr></thead>
-            <tbody>
-              {data.map((c, i) => (
-                <tr key={c.id ?? i} style={{ borderBottom: '1px solid var(--border)' }}>
-                  <td style={{ padding: '0.65rem 0.75rem', color: 'var(--text)', fontWeight: 500 }}>{c.name}</td>
-                  <td style={{ padding: '0.65rem 0.75rem' }}><span style={statusBadge(c.status || 'draft')}>{c.status || 'draft'}</span></td>
-                  <td style={{ padding: '0.65rem 0.75rem', color: 'var(--text2)', fontSize: '0.85rem' }}>{c.startDate || c.start_date || '—'}</td>
-                  <td style={{ padding: '0.65rem 0.75rem', color: 'var(--text2)', fontSize: '0.85rem' }}>{c.endDate || c.end_date || '—'}</td>
-                  <td style={{ padding: '0.65rem 0.75rem' }}>
-                    <button style={{ ...btn('danger'), padding: '0.3rem 0.5rem' }} onClick={() => deleteMutation.mutate(c.id)}><Trash2 size={13} /></button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </div>
     </div>
-  );
+  )
 }

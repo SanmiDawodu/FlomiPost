@@ -1,3 +1,4 @@
+// PostsPage.jsx
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
@@ -5,15 +6,15 @@ import { api } from '../utils/api'
 import { useMultiSelect } from '../hooks/useMultiSelect'
 import BulkActionBar from '../components/BulkActionBar'
 import toast from 'react-hot-toast'
-import { Plus, Edit2, Trash2, Send } from 'lucide-react'
+import { Plus, Edit2, Trash2, Send, FileText } from 'lucide-react'
+import { format, parseISO } from 'date-fns'
 
-const STATUS_COLORS = {
-  draft:     'bg-gray-500/20 text-gray-400',
-  scheduled: 'bg-blue-500/20 text-blue-400',
-  published: 'bg-green-500/20 text-green-400',
-  failed:    'bg-red-500/20 text-red-400',
-  cancelled: 'bg-yellow-500/20 text-yellow-400',
-}
+const STATUSES = ['', 'draft', 'scheduled', 'published', 'failed']
+const PER_PAGE = 50
+
+// Upcoming-focused tabs show the next post to fire first; history tabs show
+// newest first. 'smart' = upcoming soonest-first, then past newest-first.
+const SORT_BY_STATUS = { '': 'smart', draft: 'smart', scheduled: 'asc', published: 'desc', failed: 'desc' }
 
 export default function PostsPage() {
   const qc = useQueryClient()
@@ -23,11 +24,12 @@ export default function PostsPage() {
 
   const { data, isLoading } = useQuery({
     queryKey: ['posts', status, page],
-    queryFn: () => api.get(`/posts?status=${status}&page=${page}&per_page=50`).then(r => r.data),
+    queryFn: () => api.get(`/posts?status=${status}&page=${page}&per_page=${PER_PAGE}&sort=${SORT_BY_STATUS[status] ?? 'desc'}`),
   })
 
-  const posts = data?.data ?? data?.items ?? []
-  const total = data?.total ?? 0
+  const posts = data?.data ?? []
+  const total = data?.meta?.total ?? posts.length
+  const pages = Math.max(1, Math.ceil(total / PER_PAGE))
 
   const ms = useMultiSelect(posts)
 
@@ -54,90 +56,109 @@ export default function PostsPage() {
     deleteMutation.mutate(ids)
   }
 
+  const fmtDate = (s) => {
+    if (!s) return '—'
+    try { return format(parseISO(s), 'MMM d, yyyy HH:mm') } catch { return s }
+  }
+
   return (
-    <div className="p-6 max-w-5xl mx-auto">
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-bold">Posts</h1>
-        <button
-          onClick={() => navigate('/compose')}
-          className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-xl text-sm font-medium hover:bg-purple-700 transition-colors"
-        ><Plus size={16}/> New Post</button>
+    <div>
+      <div className="fp-page-header">
+        <div>
+          <div className="fp-page-title">Posts</div>
+          <div className="fp-page-sub">{total} post{total === 1 ? '' : 's'}</div>
+        </div>
+        <button className="fp-btn fp-btn-primary" onClick={() => navigate('/compose')}>
+          <Plus size={16}/> New Post
+        </button>
       </div>
 
-      <div className="flex gap-2 mb-5 flex-wrap">
-        {['','draft','scheduled','published','failed'].map(s => (
-          <button key={s} onClick={() => { setStatus(s); setPage(1) }}
-            className={`px-3 py-1.5 rounded-full text-xs font-medium capitalize transition-colors ${status === s ? 'bg-purple-600 text-white' : 'bg-white/5 text-gray-400 hover:bg-white/10'}`}
-          >{s || 'All'}</button>
+      <div className="fp-tabs">
+        {STATUSES.map(s => (
+          <div key={s} className={`fp-tab ${status === s ? 'active' : ''}`}
+            style={{textTransform:'capitalize'}}
+            onClick={() => { setStatus(s); setPage(1); ms.clear() }}>
+            {s || 'All'}
+          </div>
         ))}
       </div>
 
-      {isLoading && <p className="text-gray-400">Loading…</p>}
-      {!isLoading && posts.length === 0 && <p className="text-gray-500 text-center py-16">No posts found</p>}
-
-      {posts.length > 0 && (
-        <div className="bg-white/5 border border-white/10 rounded-xl overflow-hidden">
-          <table className="w-full">
-            <thead>
-              <tr className="border-b border-white/10 text-xs text-gray-500">
-                <th className="p-3 w-10">
-                  <input type="checkbox" checked={ms.allSelected} ref={el => el && (el.indeterminate = ms.someSelected)}
-                    onChange={ms.toggleAll} className="accent-purple-500 w-4 h-4"/>
-                </th>
-                <th className="p-3 text-left">Caption</th>
-                <th className="p-3 text-left">Status</th>
-                <th className="p-3 text-left">Scheduled</th>
-                <th className="p-3 w-24"/>
-              </tr>
-            </thead>
-            <tbody>
-              {posts.map(post => (
-                <tr key={post.id} className={`border-b border-white/5 hover:bg-white/5 transition-colors ${ms.selected.has(post.id) ? 'bg-purple-500/10' : ''}`}>
-                  <td className="p-3">
-                    <input type="checkbox" checked={ms.selected.has(post.id)} onChange={() => ms.toggle(post.id)}
-                      className="accent-purple-500 w-4 h-4"/>
-                  </td>
-                  <td className="p-3 max-w-xs">
-                    <p className="text-sm text-gray-200 truncate">{post.caption || '(no caption)'}</p>
-                  </td>
-                  <td className="p-3">
-                    <span className={`text-xs px-2 py-0.5 rounded-full capitalize font-medium ${STATUS_COLORS[post.status] ?? 'bg-gray-500/20 text-gray-400'}`}>{post.status}</span>
-                  </td>
-                  <td className="p-3 text-xs text-gray-400">
-                    {post.scheduled_at ? new Date(post.scheduled_at).toLocaleString() : '—'}
-                  </td>
-                  <td className="p-3">
-                    <div className="flex items-center gap-1 justify-end">
-                      {post.status === 'draft' && (
-                        <button onClick={() => publishMutation.mutate(post.id)}
-                          className="p-1.5 text-blue-400 hover:bg-blue-600/20 rounded-lg" title="Publish now">
-                          <Send size={13}/>
-                        </button>
-                      )}
-                      <button onClick={() => navigate(`/compose/${post.id}`)}
-                        className="p-1.5 text-gray-400 hover:text-white hover:bg-white/10 rounded-lg">
-                        <Edit2 size={13}/>
-                      </button>
-                      <button onClick={() => confirmDelete([post.id])}
-                        className="p-1.5 text-red-400 hover:bg-red-600/20 rounded-lg">
-                        <Trash2 size={13}/>
-                      </button>
-                    </div>
-                  </td>
+      <div className="fp-card">
+        <div className="fp-card-title"><FileText size={15}/> {status ? `${status} posts` : 'All posts'}</div>
+        {isLoading ? <div className="fp-loader"><div className="fp-spinner"/></div>
+        : posts.length === 0 ? (
+          <div className="fp-empty">
+            <div className="fp-empty-icon">📝</div>
+            <h3>No posts found</h3>
+            <p>Create a post to see it here.</p>
+          </div>
+        ) : (
+          <div className="fp-table-wrap">
+            <table className="fp-table">
+              <thead>
+                <tr>
+                  <th style={{width:36}}>
+                    <input type="checkbox" checked={ms.allSelected}
+                      ref={el => el && (el.indeterminate = ms.someSelected)}
+                      onChange={ms.toggleAll}
+                      style={{accentColor:'var(--violet)',width:15,height:15,cursor:'pointer'}}/>
+                  </th>
+                  <th>Caption</th>
+                  <th>Site</th>
+                  <th>Status</th>
+                  <th>Scheduled</th>
+                  <th/>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+              </thead>
+              <tbody>
+                {posts.map(post => (
+                  <tr key={post.id} style={ms.selected.has(post.id) ? {background:'var(--violet-lt)'} : undefined}>
+                    <td>
+                      <input type="checkbox" checked={ms.selected.has(post.id)} onChange={() => ms.toggle(post.id)}
+                        style={{accentColor:'var(--violet)',width:15,height:15,cursor:'pointer'}}/>
+                    </td>
+                    <td style={{maxWidth:340}}>
+                      <div style={{overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>
+                        {post.caption || <span style={{color:'var(--text3)'}}>(no caption)</span>}
+                      </div>
+                    </td>
+                    <td style={{fontSize:11,color:'var(--text3)',whiteSpace:'nowrap'}}>{post.site_name || '—'}</td>
+                    <td><span className={`fp-badge fp-badge-${post.status}`}>{post.status}</span></td>
+                    <td style={{fontFamily:'JetBrains Mono,monospace',fontSize:12,whiteSpace:'nowrap'}}>{fmtDate(post.scheduled_at)}</td>
+                    <td>
+                      <div style={{display:'flex',gap:6,justifyContent:'flex-end'}}>
+                        {post.status === 'draft' && (
+                          <button className="fp-btn fp-btn-ghost fp-btn-xs" title="Publish now"
+                            disabled={publishMutation.isPending}
+                            onClick={() => publishMutation.mutate(post.id)}>
+                            <Send size={13}/>
+                          </button>
+                        )}
+                        <button className="fp-btn fp-btn-ghost fp-btn-xs" title="Edit"
+                          onClick={() => navigate(`/compose/${post.id}`)}>
+                          <Edit2 size={13}/>
+                        </button>
+                        <button className="fp-btn fp-btn-danger fp-btn-xs" title="Delete"
+                          onClick={() => confirmDelete([post.id])}>
+                          <Trash2 size={13}/>
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
 
-      {total > 50 && (
-        <div className="flex justify-center gap-2 mt-4">
-          <button onClick={() => setPage(p => Math.max(1, p-1))} disabled={page === 1}
-            className="px-3 py-1.5 text-sm bg-white/5 rounded-lg disabled:opacity-40 hover:bg-white/10">Prev</button>
-          <span className="px-3 py-1.5 text-sm text-gray-400">Page {page}</span>
-          <button onClick={() => setPage(p => p+1)} disabled={posts.length < 50}
-            className="px-3 py-1.5 text-sm bg-white/5 rounded-lg disabled:opacity-40 hover:bg-white/10">Next</button>
+      {pages > 1 && (
+        <div style={{display:'flex',justifyContent:'center',alignItems:'center',gap:10,marginTop:16}}>
+          <button className="fp-btn fp-btn-ghost fp-btn-sm" disabled={page === 1}
+            onClick={() => setPage(p => Math.max(1, p - 1))}>Prev</button>
+          <span style={{fontSize:13,color:'var(--text3)'}}>Page {page} of {pages}</span>
+          <button className="fp-btn fp-btn-ghost fp-btn-sm" disabled={page >= pages}
+            onClick={() => setPage(p => p + 1)}>Next</button>
         </div>
       )}
 
