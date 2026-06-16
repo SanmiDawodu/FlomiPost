@@ -1,52 +1,134 @@
-import { useState } from 'react';
-import { useMutation } from '@tanstack/react-query';
-import { BookOpen, Wand2 } from 'lucide-react';
+import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
+import { useQuery } from '@tanstack/react-query'
+import { api, sitesApi } from '../utils/api'
+import toast from 'react-hot-toast'
+import { FileText, Sparkles, Copy, Send, Info } from 'lucide-react'
 
-const token = () => localStorage.getItem('fp_token');
-const h = () => ({ Authorization: `Bearer ${token()}`, 'Content-Type': 'application/json' });
+const PLATFORMS = ['twitter','linkedin','instagram','facebook','telegram','tiktok','threads']
 
 export default function BlogToSocialPage() {
-  const [url, setUrl] = useState('');
-  const [results, setResults] = useState(null);
+  const [url, setUrl] = useState('')
+  const [title, setTitle] = useState('')
+  const [content, setContent] = useState('')
+  const [profileId, setProfileId] = useState('')
+  const [platforms, setPlatforms] = useState(['twitter','linkedin','instagram','facebook'])
+  const [loading, setLoading] = useState(false)
+  const [results, setResults] = useState(null)
+  const [showHelp, setShowHelp] = useState(false)
 
-  const convert = useMutation({
-    mutationFn: async (blogUrl) => {
-      const r = await fetch('/api/blog-to-social', { method: 'POST', headers: h(), body: JSON.stringify({ url: blogUrl }) });
-      if (!r.ok) throw new Error('Conversion failed');
-      const j = await r.json(); return j.data || j;
-    },
-    onSuccess: (data) => setResults(data),
-  });
+  const { data: profilesRes } = useQuery({ queryKey:['voice-profiles'], queryFn:()=>api.get('/voice-profiles') })
+  const profiles = profilesRes?.data ?? []
+  const navigate = useNavigate()
 
-  const page = { padding: '2rem', maxWidth: '760px' };
-  const input = { flex: 1, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', color: 'var(--text)', padding: '0.65rem 0.9rem', fontSize: '0.9rem' };
-  const btn = { padding: '0.6rem 1.25rem', borderRadius: 'var(--radius)', background: 'var(--accent)', border: 'none', color: 'var(--text)', cursor: 'pointer', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.4rem', flexShrink: 0 };
-  const postCard = { background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: '1rem 1.25rem', marginBottom: '0.75rem' };
-  const platformBadge = { padding: '0.18rem 0.6rem', borderRadius: '99px', fontSize: '0.72rem', background: 'var(--accent)', color: 'var(--text)', marginBottom: '0.5rem', display: 'inline-block' };
+  const sendToCompose = (text) => {
+    sessionStorage.setItem('fp_compose_prefill', JSON.stringify({ caption: text }))
+    navigate('/compose')
+  }
+
+  const togglePlatform = p => setPlatforms(prev => prev.includes(p)?prev.filter(x=>x!==p):[...prev,p])
+
+  const generate = async () => {
+    if (!url && !content) return toast.error('Enter a URL or paste content')
+    if (platforms.length===0) return toast.error('Select at least one platform')
+    setLoading(true)
+    setResults(null)
+    try {
+      const r = await api.post('/ai/blog-to-social', { url, title, content, platforms, profile_id:parseInt(profileId)||0 })
+      setResults(r.data)
+      toast.success(`Generated ${Object.keys(r.data.posts||{}).length} posts!`)
+    } catch(e) { toast.error(e.message) }
+    finally { setLoading(false) }
+  }
+
+  const PLATFORM_COLORS = { twitter:'#000',linkedin:'#0077b5',instagram:'#e1306c',facebook:'#1877f2',telegram:'#0088cc',tiktok:'#010101',threads:'#000' }
 
   return (
-    <div style={page}>
-      <h1 style={{ color: 'var(--text)', margin: '0 0 0.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}><BookOpen size={22} /> Blog to Social</h1>
-      <p style={{ color: 'var(--text2)', marginBottom: '1.5rem', fontSize: '0.9rem' }}>Paste a blog URL and AI will generate social posts for each platform.</p>
-      <div style={{ display: 'flex', gap: '0.75rem', marginBottom: '1.5rem' }}>
-        <input style={input} type="url" placeholder="https://yourblog.com/post…" value={url} onChange={e => setUrl(e.target.value)} onKeyDown={e => e.key === 'Enter' && convert.mutate(url)} />
-        <button style={btn} onClick={() => convert.mutate(url)} disabled={convert.isPending || !url}>
-          <Wand2 size={15} />{convert.isPending ? 'Converting…' : 'Convert'}
-        </button>
+    <div>
+      <div className="fp-page-header" style={{marginBottom:24}}>
+        <h1 className="fp-page-title">Blog → Social Posts</h1>
+        <p className="fp-page-sub">Turn one blog post or article into platform-specific social posts automatically</p>
       </div>
-      {convert.isError && <p style={{ color: 'var(--danger)', marginBottom: '1rem' }}>{convert.error.message}</p>}
-      {results && (
+
+      {/* Inline how-to */}
+      <div style={{marginBottom:16}}>
+        <button onClick={()=>setShowHelp(v=>!v)} style={{display:'flex',alignItems:'center',gap:6,background:'none',border:'none',cursor:'pointer',color:'var(--violet)',fontSize:13,fontWeight:600,padding:0}}>
+          <Info size={14}/> How it works {showHelp?'▲':'▼'}
+        </button>
+        {showHelp && (
+          <div className="fp-card" style={{marginTop:8,fontSize:13,color:'var(--text2)',lineHeight:1.8}}>
+            <ol style={{margin:0,paddingLeft:18}}>
+              <li>Paste a blog/article <strong>URL</strong>, or paste the title + content directly.</li>
+              <li>(Optional) choose a <strong>Voice Profile</strong> to match your tone.</li>
+              <li>Tap the <strong>platform pills</strong> to pick which networks to write for.</li>
+              <li>Click <strong>Generate Posts</strong> — a custom post appears for each platform.</li>
+              <li>Click <strong>Compose</strong> on any result to drop it into the Composer (then pick accounts &amp; schedule), or <strong>Copy</strong> to paste it elsewhere.</li>
+            </ol>
+          </div>
+        )}
+      </div>
+
+      <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:16,alignItems:'start'}}>
+        <div className="fp-card">
+          <div style={{fontWeight:700,fontSize:13,marginBottom:12}}>Input</div>
+          <div style={{marginBottom:10}}><label className="fp-label">Blog/Article URL</label>
+            <input className="fp-input" value={url} onChange={e=>setUrl(e.target.value)} placeholder="https://ssiministries.org/prayer-is-your-deadliest-weapon/"/>
+          </div>
+          <div style={{marginBottom:10,textAlign:'center',color:'var(--text3)',fontSize:12}}>— or paste content directly —</div>
+          <div style={{marginBottom:10}}><label className="fp-label">Title (optional)</label>
+            <input className="fp-input" value={title} onChange={e=>setTitle(e.target.value)} placeholder="Prayer is Your Deadliest Weapon"/>
+          </div>
+          <div style={{marginBottom:12}}><label className="fp-label">Content (optional)</label>
+            <textarea className="fp-input" rows={4} value={content} onChange={e=>setContent(e.target.value)} style={{width:'100%',resize:'vertical'}} placeholder="Paste article text here..."/>
+          </div>
+
+          <div style={{marginBottom:12}}>
+            <label className="fp-label">Voice Profile (optional)</label>
+            <select className="fp-select" value={profileId} onChange={e=>setProfileId(e.target.value)}>
+              <option value="">Generic AI</option>
+              {profiles.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}
+            </select>
+          </div>
+
+          <div style={{marginBottom:14}}>
+            <label className="fp-label">Generate for</label>
+            <div style={{display:'flex',flexWrap:'wrap',gap:6}}>
+              {PLATFORMS.map(p=>(
+                <button key={p} onClick={()=>togglePlatform(p)}
+                  style={{padding:'4px 12px',borderRadius:20,border:'1.5px solid '+(platforms.includes(p)?PLATFORM_COLORS[p]:'var(--border)'),
+                    background:platforms.includes(p)?PLATFORM_COLORS[p]+'15':'transparent',
+                    color:platforms.includes(p)?PLATFORM_COLORS[p]:'var(--text3)',
+                    fontSize:12,fontWeight:600,cursor:'pointer'}}>
+                  {p}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <button className="fp-btn fp-btn-primary" onClick={generate} disabled={loading} style={{width:'100%',justifyContent:'center'}}>
+            {loading?<><Sparkles size={14} style={{animation:'spin 1s linear infinite'}}/> Generating...</>:<><Sparkles size={14}/> Generate {platforms.length} Posts</>}
+          </button>
+        </div>
+
+        {/* Results */}
         <div>
-          <h2 style={{ color: 'var(--text)', fontSize: '1rem', marginBottom: '1rem' }}>Generated Posts</h2>
-          {(Array.isArray(results) ? results : results.posts || []).map((p, i) => (
-            <div key={i} style={postCard}>
-              <div style={platformBadge}>{p.platform || 'Social'}</div>
-              <p style={{ color: 'var(--text)', margin: 0, fontSize: '0.88rem', lineHeight: 1.6 }}>{p.content || p.caption || p.text}</p>
+          <div style={{fontWeight:700,fontSize:13,marginBottom:12}}>Generated Posts</div>
+          {!results && <div className="fp-card" style={{textAlign:'center',padding:40,color:'var(--text3)'}}><FileText size={32} style={{opacity:.2,marginBottom:8}}/><p>Posts will appear here after generation.</p></div>}
+          {results && Object.entries(results.posts||{}).map(([platform, text])=>(
+            <div key={platform} className="fp-card" style={{marginBottom:10}}>
+              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8}}>
+                <span style={{fontSize:11,fontWeight:700,textTransform:'uppercase',letterSpacing:'.08em',color:PLATFORM_COLORS[platform]||'var(--primary)'}}>{platform}</span>
+                <div style={{display:'flex',gap:4}}>
+                  <button onClick={()=>{navigator.clipboard.writeText(text);toast.success('Copied!')}} className="fp-btn fp-btn-ghost fp-btn-sm" style={{fontSize:11}}><Copy size={11}/> Copy</button>
+                  <button onClick={()=>sendToCompose(text)} className="fp-btn fp-btn-primary fp-btn-sm" style={{fontSize:11}} title="Open in Composer to pick accounts & schedule"><Send size={11}/> Compose</button>
+                </div>
+              </div>
+              <div style={{fontSize:13,lineHeight:1.7,whiteSpace:'pre-wrap',color:'var(--text)'}}>{text}</div>
+              <div style={{fontSize:10,color:'var(--text3)',marginTop:6}}>{text.length} chars</div>
             </div>
           ))}
-          {results.url && <div style={postCard}><p style={{ color: 'var(--text)', margin: 0 }}>{JSON.stringify(results)}</p></div>}
         </div>
-      )}
+      </div>
     </div>
-  );
+  )
 }

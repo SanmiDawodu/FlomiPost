@@ -166,6 +166,7 @@ export default function ComposePage() {
   const [caption,     setCaption]     = useState('')
   const [captionHtml, setCaptionHtml] = useState('')
   const [connections, setConnections] = useState([])
+  const [segmentId,   setSegmentId]   = useState('')   // WhatsApp audience (contact segment)
   const [schedDate,   setSchedDate]   = useState(null)
   const [linkUrl,     setLinkUrl]     = useState('')
   const [notes,       setNotes]       = useState('')
@@ -220,6 +221,7 @@ export default function ComposePage() {
   const [showUtm,     setShowUtm]     = useState(false)
   const [campaignId,  setCampaignId]  = useState('')
   const [expandedGroup, setExpandedGroup] = useState(null)  // key_name of expanded platform group
+  const [mobileView,    setMobileView]    = useState('edit') // 'edit' | 'preview' — mobile-only pane toggle
   const topBarRef = useRef(null)
   const expandedPanelRef = useRef(null)
 
@@ -242,6 +244,9 @@ export default function ComposePage() {
   const { data: postRes }        = useQuery({ queryKey:['post', id],    queryFn: () => postsApi.get(id), enabled:!!id })
   const { data: campaignsRes }   = useQuery({ queryKey:['campaigns'],         queryFn: () => api.get('/campaigns') })
   const campaigns = campaignsRes?.data ?? []
+  const { data: setsRes }        = useQuery({ queryKey:['sets', siteId], queryFn: () => api.get('/sets?site_id='+siteId), enabled: !!siteId })
+  const sets = setsRes?.data ?? []
+  const { data: waSegRes }       = useQuery({ queryKey:['wa-segments', siteId], queryFn: () => api.get('/whatsapp/segments?site_id='+siteId), enabled: !!siteId })
 
   const sites     = sitesRes?.data ?? []
   const allPlats  = platformsRes?.data ?? []
@@ -262,6 +267,22 @@ export default function ComposePage() {
         : c.account_name
     }))
   })()
+  const waSegments = waSegRes?.data ?? []
+  const hasWhatsApp = connections.some(id => {
+    const c = siteConns.find(cc => String(cc.id) === String(id))
+    return c && String(c.key_name || '').startsWith('whatsapp')
+  })
+  // Which Set (if any) exactly matches the current account selection — so the dropdown shows it
+  const activeSetId = (() => {
+    const cur = [...connections].map(String).sort()
+    if (!cur.length) return ''
+    const m = sets.find(st => {
+      let ids = []
+      try { ids = (JSON.parse(st.connection_ids || '[]') || []).map(String).sort() } catch {}
+      return ids.length === cur.length && ids.every((v, i) => v === cur[i])
+    })
+    return m ? String(m.id) : ''
+  })()
 
   useEffect(() => {
     if (postRes?.data) {
@@ -270,6 +291,7 @@ export default function ComposePage() {
       setCaption(p.caption)
       setCaptionHtml(p.caption)
       setConnections(p.targets.map(t => String(t.connection_id)).filter(Boolean))
+      if (p.segment_id) setSegmentId(String(p.segment_id))
       setLinkUrl(p.link_url || '')
       setNotes(p.notes || '')
       setMediaIds(p.media_ids || [])
@@ -277,7 +299,7 @@ export default function ComposePage() {
     }
   }, [postRes])
 
-  useEffect(() => { setConnections([]) }, [siteId])
+  useEffect(() => { setConnections([]); setSegmentId('') }, [siteId])
 
   // Handle Canva OAuth callback
   useEffect(() => {
@@ -309,9 +331,36 @@ export default function ComposePage() {
     if (sites.length === 1 && !siteId) setSiteId(String(sites[0].id))
   }, [sites])
 
+  // Prefill caption from Blog→Social "Send to Compose"
+  useEffect(() => {
+    if (id) return
+    try {
+      const raw = sessionStorage.getItem('fp_compose_prefill')
+      if (raw) {
+        const d = JSON.parse(raw)
+        if (d.caption) { setCaption(d.caption); setCaptionHtml(d.caption) }
+        sessionStorage.removeItem('fp_compose_prefill')
+        toast.success('Loaded from Blog → Social. Pick accounts and schedule.')
+      }
+    } catch {}
+  }, [])
+
   const handleQuillChange = (html, delta, source, editor) => {
     setCaptionHtml(html)
     setCaption(editor.getText().trim())
+  }
+
+  // Apply a saved Set: select all of its accounts that belong to this site
+  const applySet = (setId) => {
+    const s = sets.find(x => String(x.id) === String(setId))
+    if (!s) return
+    let ids = []
+    try { ids = JSON.parse(s.connection_ids || '[]') } catch {}
+    const valid = ids.map(String).filter(cid => siteConns.some(c => String(c.id) === cid))
+    setConnections(valid)
+    if (!valid.length) toast.error(`"${s.name}" has no accounts on this site`)
+    else if (valid.length < ids.length) toast(`Selected ${valid.length} (some accounts aren't on this site)`, { icon:'⚠️' })
+    else toast.success(`Selected ${valid.length} accounts from "${s.name}"`)
   }
 
   const saveMutation = useMutation({
@@ -352,6 +401,7 @@ export default function ComposePage() {
       site_id: parseInt(siteId), caption,
       caption_raw: captionHtml,
       connection_ids: connections.map(Number),
+      segment_id: (hasWhatsApp && segmentId) ? parseInt(segmentId) : null,
       scheduled_at: isScheduled ? schedDate.toISOString() : null,
       link_url: linkUrl || null, notes: notes || null, media_ids: mediaIds,
       status: asDraft ? 'draft' : (isScheduled ? 'scheduled' : 'queued'),
@@ -482,10 +532,10 @@ export default function ComposePage() {
   }
 
   return (
-    <div style={{ height:'calc(100vh - 60px)', display:'flex', flexDirection:'column', overflow:'hidden', position:'relative' }}>
+    <div className="fp-compose-root" style={{ height:'calc(100vh - 60px)', display:'flex', flexDirection:'column', overflow:'hidden', position:'relative' }}>
 
       {/* Top bar — site selector + platform icons + action buttons */}
-      <div ref={topBarRef} style={{ padding:'8px 12px', borderBottom:'1px solid var(--border)', display:'flex', alignItems:'center', gap:10, background:'var(--surface)', flexShrink:0 }}>
+      <div ref={topBarRef} className="fp-compose-topbar" style={{ padding:'8px 12px', borderBottom:'1px solid var(--border)', display:'flex', alignItems:'center', gap:10, background:'var(--surface)', flexShrink:0, flexWrap:'wrap' }}>
         {/* Site selector */}
         <select className="fp-select" value={siteId} onChange={e=>setSiteId(e.target.value)}
           style={{ width:150, fontSize:12, padding:'5px 8px', flexShrink:0 }}>
@@ -499,9 +549,27 @@ export default function ComposePage() {
             {campaigns.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}
           </select>
         )}
+        {sets.length > 0 && (
+          <select className="fp-select" value={activeSetId} title="Set = a saved group of YOUR accounts to publish from"
+            onChange={e=>{ if(e.target.value) applySet(e.target.value) }}
+            style={{ width:200, fontSize:12, padding:'5px 8px', flexShrink:0 }}>
+            <option value="">Use a Set (accounts)…</option>
+            {sets.map(s=><option key={s.id} value={s.id}>{s.name}</option>)}
+          </select>
+        )}
+        {hasWhatsApp && (
+          <select className="fp-select" value={segmentId} onChange={e=>setSegmentId(e.target.value)}
+            title="Segment = which WhatsApp contacts RECEIVE this message"
+            style={{ width:170, fontSize:12, padding:'5px 8px', flexShrink:0, border:'1.5px solid #25D366' }}>
+            <option value="">WhatsApp: all contacts</option>
+            {waSegments.map(sg=>(
+              <option key={sg.id} value={sg.id}>👥 {sg.name}{sg.contact_count!=null?` (${sg.contact_count})`:''}</option>
+            ))}
+          </select>
+        )}
 
         {/* Platform icons — grouped by platform, scrollable */}
-        <div style={{ flex:1, display:'flex', gap:12, overflowX:'auto', alignItems:'center',
+        <div style={{ flex:1, minWidth:0, display:'flex', gap:12, overflowX:'auto', alignItems:'center',
           scrollbarWidth:'none', msOverflowStyle:'none', padding:'2px 4px' }}>
           {siteConns.length === 0 && (
             <span style={{ fontSize:12, color:'var(--text3)', whiteSpace:'nowrap' }}>
@@ -631,7 +699,10 @@ export default function ComposePage() {
         </div>
 
         {/* Action buttons */}
-        <div style={{ display:'flex', gap:6, flexShrink:0 }}>
+        <div className="fp-compose-actions" style={{ display:'flex', gap:6, flexShrink:0 }}>
+          <button className="fp-btn fp-btn-ghost fp-btn-sm fp-mobile-only" onClick={()=>setMobileView(v=>v==='edit'?'preview':'edit')}>
+            {mobileView==='edit' ? 'Preview' : 'Edit'}
+          </button>
           {isEdit && <button className="fp-btn fp-btn-ghost fp-btn-sm" onClick={()=>publishNowMutation.mutate()}><Send size={13}/></button>}
           <button className="fp-btn fp-btn-ghost fp-btn-sm" onClick={()=>handleSave(true)}><Save size={13}/> Draft</button>
           <button className="fp-btn fp-btn-primary fp-btn-sm" onClick={()=>handleSave(false)} disabled={saveMutation.isPending}>
@@ -684,21 +755,36 @@ export default function ComposePage() {
 
       {/* Body */}
       <style>{`
-        @media (max-width: 768px) {
+        /* The Edit/Preview toggle only appears once the layout is single-column. */
+        .fp-mobile-only { display: none; }
+
+        /* Tablet/narrow: single column; let the preview be toggled into view
+           (the two-class selector beats index.css's .fp-compose-preview hide). */
+        @media (max-width: 900px) {
           .fp-compose-body { grid-template-columns: 1fr !important; }
           .fp-compose-preview { display: none !important; }
           .fp-compose-preview.show { display: flex !important; }
+          .fp-compose-left.hide-mobile { display: none !important; }
+          .fp-mobile-only { display: inline-flex; }
         }
-        @media (max-width: 480px) {
+
+        /* Phone/tablet: stop forcing a viewport-tall, clipped box. Let the page
+           flow and scroll so the bottom toolbar + Post buttons stay reachable,
+           and let the crowded top bar wrap instead of shoving buttons off-screen. */
+        @media (max-width: 768px) {
+          .fp-compose-root { height: auto !important; min-height: calc(100vh - 92px); overflow: visible !important; }
+          .fp-compose-body { overflow: visible !important; max-height: none !important; }
+          .fp-compose-left { overflow: visible !important; }
+          .fp-compose-topbar > .fp-select { flex: 1 1 140px; width: auto !important; }
+          .fp-compose-actions { margin-left: auto; }
           .fp-quill .ql-toolbar { flex-wrap: wrap; }
-          .fp-avatar-row { gap: 6px !important; }
-          .fp-avatar-row > div { width: 36px !important; height: 36px !important; }
+          .fp-quill .ql-editor { min-height: 200px; }
         }
       `}</style>
       <div className="fp-compose-body" style={{ flex:1, display:'grid', gridTemplateColumns:'1fr 340px', overflow:'hidden', minHeight:0, maxHeight:'100%' }}>
 
         {/* Left */}
-        <div style={{ display:'flex', flexDirection:'column', borderRight:'1px solid var(--border)', overflowX:'hidden', overflowY:'auto', minHeight:0 }}>
+        <div className={`fp-compose-left${mobileView==='preview' ? ' hide-mobile' : ''}`} style={{ display:'flex', flexDirection:'column', borderRight:'1px solid var(--border)', overflowX:'hidden', overflowY:'auto', minHeight:0 }}>
 
 
 
@@ -1166,7 +1252,7 @@ export default function ComposePage() {
         </div>
 
         {/* Right — preview */}
-        <div className="fp-compose-preview" style={{ display:'flex', flexDirection:'column', background:'var(--surface)', overflow:'hidden', minHeight:0 }}>
+        <div className={`fp-compose-preview${mobileView==='preview' ? ' show' : ''}`} style={{ display:'flex', flexDirection:'column', background:'var(--surface)', overflow:'hidden', minHeight:0 }}>
           <div style={{ padding:'14px 16px', borderBottom:'1px solid var(--border)', fontSize:13, fontWeight:700, flexShrink:0 }}>Post Preview</div>
           <div style={{ flex:1, overflowY:'auto', padding:'12px 16px' }}>
             {!caption.trim()

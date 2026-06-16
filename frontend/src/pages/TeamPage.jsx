@@ -1,67 +1,73 @@
-import { useState } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { UsersRound, Plus, Trash2 } from 'lucide-react';
-
-const token = () => localStorage.getItem('fp_token');
-const h = () => ({ Authorization: `Bearer ${token()}`, 'Content-Type': 'application/json' });
-const ROLES = ['admin', 'manager', 'editor', 'viewer'];
+import { useState } from 'react'
+import { useQuery, useMutation } from '@tanstack/react-query'
+import { api } from '../utils/api'
+import toast from 'react-hot-toast'
+import { Plus, Trash2, Users, Copy } from 'lucide-react'
 
 export default function TeamPage() {
-  const qc = useQueryClient();
-  const [form, setForm] = useState({ email: '', role: 'editor' });
+  const [showInvite, setShowInvite] = useState(false)
+  const [form, setForm] = useState({ email:'', role:'editor' })
+  const [inviteUrl, setInviteUrl] = useState('')
 
-  const { data, isLoading } = useQuery({
-    queryKey: ['team'],
-    queryFn: async () => { const r = await fetch('/api/team', { headers: h() }); const j = await r.json(); return j.data || j; },
-  });
+  const { data, refetch } = useQuery({ queryKey:['team'], queryFn: ()=>api.get('/team') })
+  const members = data?.data ?? []
 
-  const invite = useMutation({
-    mutationFn: async (p) => { const r = await fetch('/api/team/invite', { method: 'POST', headers: h(), body: JSON.stringify(p) }); if (!r.ok) throw new Error('Failed'); },
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['team'] }); setForm({ email: '', role: 'editor' }); },
-  });
+  const invite = useMutation({ mutationFn: ()=>api.post('/team/invite',form),
+    onSuccess: r=>{ toast.success('Invite sent!'); setInviteUrl(r.data?.invite_url||''); refetch() },
+    onError: e=>toast.error(e.message) })
 
-  const remove = useMutation({
-    mutationFn: async (id) => { await fetch(`/api/team/${id}`, { method: 'DELETE', headers: h() }); },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['team'] }),
-  });
-
-  const page = { padding: '2rem', maxWidth: '800px' };
-  const input = { background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', color: 'var(--text)', padding: '0.6rem 0.75rem', fontSize: '0.9rem' };
-  const card = { background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: '1rem 1.25rem', marginBottom: '0.75rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' };
-  const btn = (v) => ({ padding: '0.4rem 0.9rem', borderRadius: 'var(--radius)', border: '1px solid var(--border)', background: v === 'accent' ? 'var(--accent)' : 'transparent', color: v === 'danger' ? 'var(--danger)' : 'var(--text)', cursor: 'pointer', fontSize: '0.82rem', display: 'inline-flex', alignItems: 'center', gap: '0.35rem' });
-  const avatar = (name) => ({ width: '36px', height: '36px', borderRadius: '50%', background: 'var(--accent)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text)', fontWeight: 700, fontSize: '0.9rem', flexShrink: 0 });
+  const remove = useMutation({ mutationFn: id=>api.delete('/team/'+id),
+    onSuccess:()=>{ toast.success('Removed'); refetch() } })
 
   return (
-    <div style={page}>
-      <h1 style={{ color: 'var(--text)', margin: '0 0 1.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}><UsersRound size={22} /> Team</h1>
-      <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: '1.25rem', marginBottom: '1.5rem' }}>
-        <h3 style={{ color: 'var(--text)', margin: '0 0 1rem' }}>Invite Team Member</h3>
-        <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-          <input style={{ ...input, flex: 1, minWidth: '200px' }} type="email" placeholder="Email address" value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} />
-          <select style={input} value={form.role} onChange={e => setForm(f => ({ ...f, role: e.target.value }))}>
-            {ROLES.map(r => <option key={r} value={r}>{r}</option>)}
-          </select>
-          <button style={btn('accent')} onClick={() => invite.mutate(form)} disabled={invite.isPending || !form.email}><Plus size={14} />{invite.isPending ? 'Inviting…' : 'Invite'}</button>
-        </div>
-        {invite.isError && <p style={{ color: 'var(--danger)', marginTop: '0.5rem', fontSize: '0.82rem' }}>{invite.error.message}</p>}
-        {invite.isSuccess && <p style={{ color: 'var(--success)', marginTop: '0.5rem', fontSize: '0.82rem' }}>Invite sent!</p>}
+    <div>
+      <div className="fp-page-header" style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:24}}>
+        <div><h1 className="fp-page-title">Team</h1>
+          <p className="fp-page-sub">Invite team members to collaborate on your FlomiPost account</p></div>
+        <button className="fp-btn fp-btn-primary" onClick={()=>setShowInvite(v=>!v)}><Plus size={14}/> Invite Member</button>
       </div>
-      {isLoading && <p style={{ color: 'var(--text2)' }}>Loading…</p>}
-      {data?.map(m => (
-        <div key={m.id} style={card}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-            <div style={avatar(m.name || m.email)}>{(m.name || m.email || '?')[0].toUpperCase()}</div>
-            <div>
-              <div style={{ fontWeight: 600, color: 'var(--text)' }}>{m.name || m.email}</div>
-              {m.name && <div style={{ fontSize: '0.8rem', color: 'var(--text2)' }}>{m.email}</div>}
+
+      {showInvite && (
+        <div className="fp-card" style={{marginBottom:16}}>
+          <div style={{fontWeight:700,marginBottom:12}}>Invite Team Member</div>
+          <div style={{display:'flex',gap:10,marginBottom:10}}>
+            <input className="fp-input" placeholder="Email address" type="email" value={form.email} onChange={e=>setForm(f=>({...f,email:e.target.value}))} style={{flex:1}}/>
+            <select className="fp-select" style={{width:140}} value={form.role} onChange={e=>setForm(f=>({...f,role:e.target.value}))}>
+              <option value="admin">Admin</option>
+              <option value="editor">Editor</option>
+              <option value="viewer">Viewer</option>
+            </select>
+            <button className="fp-btn fp-btn-primary" onClick={()=>invite.mutate()}>Send Invite</button>
+          </div>
+          {inviteUrl && (
+            <div style={{display:'flex',gap:8,alignItems:'center',padding:'8px 12px',background:'var(--bg2)',borderRadius:8}}>
+              <span style={{fontSize:12,flex:1,fontFamily:'monospace',overflow:'hidden',textOverflow:'ellipsis'}}>{inviteUrl}</span>
+              <button className="fp-btn fp-btn-ghost fp-btn-sm" onClick={()=>{navigator.clipboard.writeText(inviteUrl);toast.success('Copied!')}}>
+                <Copy size={12}/> Copy
+              </button>
             </div>
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-            <span style={{ fontSize: '0.8rem', color: 'var(--text2)', background: 'var(--surface2)', padding: '0.18rem 0.55rem', borderRadius: '99px' }}>{m.role}</span>
-            <button style={btn('danger')} onClick={() => remove.mutate(m.id)}><Trash2 size={13} /></button>
-          </div>
+          )}
         </div>
-      ))}
+      )}
+
+      <div className="fp-card">
+        <div style={{fontWeight:700,marginBottom:16}}>Members ({members.length})</div>
+        {members.length===0 && <div style={{textAlign:'center',color:'var(--text3)',padding:30}}><Users size={32} style={{opacity:0.3,marginBottom:8}}/><br/>No team members yet.</div>}
+        {members.map(m=>(
+          <div key={m.id} style={{display:'flex',alignItems:'center',gap:12,padding:'10px 0',borderBottom:'1px solid var(--border)'}}>
+            <div style={{width:36,height:36,borderRadius:'50%',background:'var(--primary)',display:'flex',alignItems:'center',justifyContent:'center',color:'#fff',fontWeight:700,fontSize:13}}>
+              {(m.member_name||m.email||'?')[0].toUpperCase()}
+            </div>
+            <div style={{flex:1}}>
+              <div style={{fontWeight:600,fontSize:13}}>{m.member_name||m.email}</div>
+              {m.member_name && <div style={{fontSize:12,color:'var(--text3)'}}>{m.email}</div>}
+            </div>
+            <span style={{fontSize:11,padding:'3px 8px',borderRadius:12,background:'var(--primary-10)',color:'var(--primary)',fontWeight:600}}>{m.role}</span>
+            <span style={{fontSize:11,color:m.accepted?'var(--green)':'var(--orange)'}}>{m.accepted?'Active':'Pending'}</span>
+            <button className="fp-btn fp-btn-ghost fp-btn-sm" style={{color:'var(--red)'}} onClick={()=>remove.mutate(m.id)}><Trash2 size={12}/></button>
+          </div>
+        ))}
+      </div>
     </div>
-  );
+  )
 }

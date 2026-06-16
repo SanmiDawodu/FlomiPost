@@ -1,77 +1,104 @@
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useRef } from 'react';
-import { Image, Upload, Trash2 } from 'lucide-react';
-
-const token = () => localStorage.getItem('fp_token');
-const authHeader = () => ({ Authorization: `Bearer ${token()}` });
+import { useState, useCallback } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { mediaApi, sitesApi } from '../utils/api'
+import { useDropzone } from 'react-dropzone'
+import toast from 'react-hot-toast'
+import { Image, Upload } from 'lucide-react'
+import { format, parseISO } from 'date-fns'
 
 export default function MediaPage() {
-  const qc = useQueryClient();
-  const fileRef = useRef(null);
+  const qc = useQueryClient()
+  const [siteFilter, setSiteFilter] = useState('')
+  const [uploading, setUploading] = useState(false)
 
-  const { data, isLoading, error } = useQuery({
-    queryKey: ['media'],
-    queryFn: async () => {
-      const r = await fetch('/api/media', { headers: authHeader() });
-      if (!r.ok) throw new Error('Failed to fetch media');
-      const j = await r.json(); return j.data || j;
-    },
-  });
+  const { data: sitesRes } = useQuery({ queryKey: ['sites'], queryFn: sitesApi.list })
+  const { data: mediaRes, isLoading } = useQuery({
+    queryKey: ['media', siteFilter],
+    queryFn: () => mediaApi.list({ site_id: siteFilter || undefined }),
+  })
 
-  const upload = useMutation({
-    mutationFn: async (file) => {
-      const fd = new FormData(); fd.append('file', file);
-      const r = await fetch('/api/media', { method: 'POST', headers: authHeader(), body: fd });
-      if (!r.ok) throw new Error('Upload failed');
-    },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['media'] }),
-  });
+  const sites = sitesRes?.data ?? []
+  const media = mediaRes?.data ?? []
+  const meta  = mediaRes?.meta ?? {}
 
-  const remove = useMutation({
-    mutationFn: async (id) => {
-      const r = await fetch(`/api/media/${id}`, { method: 'DELETE', headers: authHeader() });
-      if (!r.ok) throw new Error('Delete failed');
-    },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['media'] }),
-  });
+  const onDrop = useCallback(async (files) => {
+    setUploading(true)
+    let ok = 0, fail = 0
+    for (const file of files) {
+      try {
+        await mediaApi.upload(file, siteFilter || undefined)
+        ok++
+      } catch (e) {
+        fail++
+      }
+    }
+    setUploading(false)
+    if (ok) toast.success(`${ok} file${ok>1?'s':''} uploaded!`)
+    if (fail) toast.error(`${fail} upload${fail>1?'s':''} failed`)
+    qc.invalidateQueries({ queryKey: ['media'] })
+  }, [siteFilter])
 
-  const handleFile = (e) => { if (e.target.files[0]) upload.mutate(e.target.files[0]); };
-
-  const page = { padding: '2rem', maxWidth: '1100px' };
-  const grid = { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: '1rem', marginTop: '1.5rem' };
-  const cell = { background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', overflow: 'hidden', position: 'relative' };
-  const btn = { padding: '0.4rem 0.9rem', borderRadius: 'var(--radius)', border: '1px solid var(--border)', background: 'var(--accent)', color: 'var(--text)', cursor: 'pointer', fontSize: '0.82rem', display: 'flex', alignItems: 'center', gap: '0.35rem' };
+  const { getRootProps, getInputProps, isDragActive } = useDropzone({
+    onDrop, accept: { 'image/*': [], 'video/mp4': [] }, maxSize: 50 * 1024 * 1024,
+  })
 
   return (
-    <div style={page}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.5rem' }}>
-        <h1 style={{ color: 'var(--text)', margin: 0, display: 'flex', alignItems: 'center', gap: '0.5rem' }}><Image size={22} /> Media Library</h1>
-        <button style={btn} onClick={() => fileRef.current?.click()}>
-          <Upload size={15} /> Upload
-        </button>
-        <input ref={fileRef} type="file" accept="image/*,video/*" style={{ display: 'none' }} onChange={handleFile} />
+    <div>
+      <div className="fp-page-header">
+        <div>
+          <div className="fp-page-title">Media Library</div>
+          <div className="fp-page-sub">{meta.total ?? 0} files</div>
+        </div>
+        <select className="fp-select" style={{width:180}} value={siteFilter} onChange={e=>setSiteFilter(e.target.value)}>
+          <option value="">All Sites</option>
+          {sites.map(s=><option key={s.id} value={s.id}>{s.domain}</option>)}
+        </select>
       </div>
-      {upload.isPending && <p style={{ color: 'var(--text2)' }}>Uploading…</p>}
-      {upload.isError && <p style={{ color: 'var(--danger)' }}>{upload.error.message}</p>}
-      {isLoading && <p style={{ color: 'var(--text2)' }}>Loading…</p>}
-      {error && <p style={{ color: 'var(--danger)' }}>{error.message}</p>}
-      <div style={grid}>
-        {data?.map(m => (
-          <div key={m.id} style={cell}>
-            {m.mime_type?.startsWith('video') ? (
-              <video src={m.url} style={{ width: '100%', height: '120px', objectFit: 'cover' }} />
-            ) : (
-              <img src={m.url || m.thumbnail_url} alt={m.filename} style={{ width: '100%', height: '120px', objectFit: 'cover' }} />
-            )}
-            <div style={{ padding: '0.5rem' }}>
-              <div style={{ fontSize: '0.75rem', color: 'var(--text2)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{m.filename || m.name}</div>
-              <button onClick={() => remove.mutate(m.id)} style={{ marginTop: '0.4rem', background: 'transparent', border: 'none', color: 'var(--danger)', cursor: 'pointer', padding: 0, display: 'flex', alignItems: 'center', gap: '0.25rem', fontSize: '0.75rem' }}>
-                <Trash2 size={12} /> Delete
-              </button>
+
+      {/* Dropzone */}
+      <div className={`fp-dropzone${isDragActive?' active':''}`} {...getRootProps()} style={{marginBottom:20}}>
+        <input {...getInputProps()}/>
+        <Upload size={28} style={{margin:'0 auto 10px',display:'block',color:'var(--text3)'}}/>
+        <div style={{fontWeight:500,color:'var(--text2)',marginBottom:4}}>
+          {uploading ? 'Uploading…' : isDragActive ? 'Drop files here…' : 'Drag & drop or click to upload'}
+        </div>
+        <div style={{fontSize:11}}>Images (JPG, PNG, GIF, WebP) and MP4 video · Max 50MB</div>
+      </div>
+
+      {/* Grid */}
+      {isLoading ? <div className="fp-loader"><div className="fp-spinner"/></div>
+        : media.length === 0 ? (
+        <div className="fp-empty">
+          <div className="fp-empty-icon">🖼️</div>
+          <h3>No media yet</h3>
+          <p>Upload images to attach to your posts</p>
+        </div>
+      ) : (
+        <div className="fp-media-grid">
+          {media.map(m => (
+            <div key={m.id} style={{borderRadius:8,overflow:'hidden',border:'1px solid var(--border)',background:'var(--bg3)'}}>
+              <div style={{aspectRatio:'1',overflow:'hidden'}}>
+                {m.mime_type?.startsWith('image/') ? (
+                  <img src={m.url} alt={m.alt_text||''} style={{width:'100%',height:'100%',objectFit:'cover'}} loading="lazy"/>
+                ) : (
+                  <div style={{width:'100%',height:'100%',display:'flex',alignItems:'center',justifyContent:'center',color:'var(--text3)'}}>
+                    🎬 video
+                  </div>
+                )}
+              </div>
+              <div style={{padding:'8px 10px'}}>
+                <div style={{fontSize:10,color:'var(--text3)',fontFamily:'DM Mono,monospace',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>
+                  {m.filename}
+                </div>
+                <div style={{fontSize:10,color:'var(--text3)',marginTop:2}}>
+                  {m.width && m.height ? `${m.width}×${m.height} · ` : ''}
+                  {(m.size/1024).toFixed(0)}KB
+                </div>
+              </div>
             </div>
-          </div>
-        ))}
-      </div>
+          ))}
+        </div>
+      )}
     </div>
-  );
+  )
 }
